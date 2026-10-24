@@ -9,7 +9,6 @@ import re
 import ee
 
 
-
 # ==========================================================================
 # 1. ANALYSIS CONFIGURATION
 # ==========================================================================
@@ -852,66 +851,3 @@ def search_available_images(config, max_display=20):
         'n_landsat': n_landsat,
         'n_sentinel2': n_s2
     }
-
-
-# ==========================================================================
-# 8. BANDPASS ADJUSTMENT
-# ==========================================================================
-
-def perform_bandpass_adjustment(s2_median, l8_median, geometry):
-    """
-    Performs bandpass adjustment between Sentinel-2 and Landsat 8.
-
-    For each band pair (S2 → L8), computes a linear regression and applies
-    the correction to the Sentinel-2 band, reprojecting to 10 m.
-
-    Args:
-        s2_median: Sentinel-2 median image.
-        l8_median: Landsat median image (optical bands).
-        geometry: Region geometry for regression.
-
-    Returns:
-        dict: Dictionary with adjusted Sentinel-2 bands.
-    """
-    print("\n🔧 Performing Bandpass Adjustment...")
-
-    adjusted_bands = {}
-
-    band_mapping = {
-        'B4': 'SR_B4',   # Red
-        'B3': 'SR_B3',   # Green
-        'B2': 'SR_B2',   # Blue
-        'B8': 'SR_B5',   # NIR
-        'B11': 'SR_B6',  # SWIR1
-        'B12': 'SR_B7'   # SWIR2
-    }
-
-    S2proj = s2_median.select('B2').projection()
-
-    for s2_band, l8_band in band_mapping.items():
-        combined = ee.Image.cat(
-            s2_median.select(s2_band),
-            l8_median.select(l8_band)
-        )
-
-        linear_fit = combined.reduceRegion(
-            reducer=ee.Reducer.linearFit(),
-            geometry=geometry,
-            scale=30,
-            tileScale=16,
-            maxPixels=1e10
-        )
-
-        b0 = linear_fit.get('offset')
-        b1 = linear_fit.get('scale')
-
-        adjusted = (s2_median.select(s2_band)
-                   .multiply(ee.Number(b1))
-                   .add(ee.Number(b0))
-                   .reproject(S2proj, None, 10))
-
-        adjusted_bands[s2_band] = adjusted
-
-        print(f"   ✓ Band {s2_band} adjusted")
-
-    return adjusted_bands

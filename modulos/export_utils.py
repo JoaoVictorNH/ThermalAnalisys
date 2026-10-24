@@ -17,15 +17,11 @@ def export_bitemporal_results(
     config,
     roi,
     stats_change=None,
-    methods=None,
     s1_t1=None,
     s1_t2=None,
     export_lst_30m=True,
-    export_lst_10m=True,
     export_uhi_30m=True,
-    export_uhi_10m=True,
     export_uhi_intensity_30m=True,
-    export_uhi_intensity_10m=True,
     export_landsat_indices=False,
     export_sentinel2_indices=False,
     landsat_indices_list='all',
@@ -39,10 +35,7 @@ def export_bitemporal_results(
     export_delta_sentinel2_indices=False,
     export_delta_uhi_30m=False,
     export_delta_uhi_intensity_30m=False,
-    export_delta_uhi_10m=False,
-    export_delta_uhi_intensity_10m=False,
     export_delta_lst_30m=False,
-    export_delta_lst_10m=False,
     export_cdi_landsat=False,
     export_cdi_sentinel2=False,
 ):
@@ -54,15 +47,11 @@ def export_bitemporal_results(
         config (dict): Configuration with export parameters.
         roi: Region of interest geometry (ee.Geometry).
         stats_change (dict): Change statistics with UHI images (optional).
-        methods (list): List of LST 10m methods to export (None = all).
         s1_t1 (ee.Image, optional): Sentinel-1 T1 image.
         s1_t2 (ee.Image, optional): Sentinel-1 T2 image.
         export_lst_30m (bool): Export Landsat 30m LST.
-        export_lst_10m (bool): Export downscaled 10m LST.
         export_uhi_30m (bool): Export normalized 30m UHI.
-        export_uhi_10m (bool): Export normalized 10m UHI.
         export_uhi_intensity_30m (bool): Export 30m UHI intensity classification.
-        export_uhi_intensity_10m (bool): Export 10m UHI intensity classification.
         export_landsat_indices (bool): Export Landsat spectral indices.
         export_sentinel2_indices (bool): Export Sentinel-2 spectral indices.
         landsat_indices_list (str or list): 'all' for all, or list of index names.
@@ -76,10 +65,7 @@ def export_bitemporal_results(
         export_delta_sentinel2_indices (bool): Export T2-T1 delta for Sentinel-2 spectral indices (10m).
         export_delta_uhi_30m (bool): Export T2-T1 delta for UHI 30m (z-score difference).
         export_delta_uhi_intensity_30m (bool): Export T2-T1 delta for UHI Intensity classification 30m.
-        export_delta_uhi_10m (bool): Export T2-T1 delta for UHI 10m per downscaling method.
-        export_delta_uhi_intensity_10m (bool): Export T2-T1 delta for UHI Intensity 10m per method.
         export_delta_lst_30m (bool): Export T2-T1 delta for LST 30m (degrees Celsius).
-        export_delta_lst_10m (bool): Export T2-T1 delta for LST 10m per downscaling method.
         export_cdi_landsat (bool): Export CDI = delta_LST_30m x delta_LandsatIndex per index (30m).
         export_cdi_sentinel2 (bool): Export CDI = delta_LST_30m x delta_S2Index per index (10m).
 
@@ -91,16 +77,6 @@ def export_bitemporal_results(
     print("=" * 80)
 
     tasks = []
-
-    # Determine methods if not specified
-    if methods is None and (export_lst_10m or export_uhi_10m):
-        try:
-            methods = list(results['t1']['methods'].keys())
-        except Exception:
-            methods = []
-            export_lst_10m = False
-            export_uhi_10m = False
-            print("  ⚠️ Could not determine LST 10m methods")
 
     # Determine UTM CRS from geometry
     if not isinstance(roi, ee.Geometry):
@@ -126,25 +102,15 @@ def export_bitemporal_results(
     # Export summary
     print("\n📋 EXPORT SUMMARY:")
     print(f"  • LST 30m (Landsat): {'YES' if export_lst_30m else 'NO'}")
-    print(f"  • LST 10m (Downscaled): {'YES' if export_lst_10m else 'NO'}")
-    if export_lst_10m and methods:
-        print(f"    Methods: {', '.join(methods)}")
     print(f"  • UHI 30m (Normalized): {'YES' if export_uhi_30m else 'NO'}")
-    print(f"  • UHI 10m (Normalized): {'YES' if export_uhi_10m else 'NO'}")
-    if export_uhi_10m and methods:
-        print(f"    Methods: {', '.join(methods)}")
     print(f"  • UHI Intensity Classification 30m (Deng et al. 2023): {'YES' if export_uhi_intensity_30m else 'NO'}")
-    print(f"  • UHI Intensity Classification 10m (Deng et al. 2023): {'YES' if export_uhi_intensity_10m else 'NO'}")
     print(f"  • Landsat Indices (30m): {'YES' if export_landsat_indices else 'NO'}")
     print(f"  • Landsat SR Imagery (30m): {'YES' if export_landsat else 'NO'}")
     print(f"  • Delta LST 30m T2-T1: {'YES' if export_delta_lst_30m else 'NO'}")
-    print(f"  • Delta LST 10m T2-T1: {'YES' if export_delta_lst_10m else 'NO'}")
     print(f"  • Delta Landsat Indices T2-T1 (30m): {'YES' if export_delta_landsat_indices else 'NO'}")
     print(f"  • Delta Sentinel-2 Indices T2-T1 (10m): {'YES' if export_delta_sentinel2_indices else 'NO'}")
     print(f"  • Delta UHI 30m T2-T1: {'YES' if export_delta_uhi_30m else 'NO'}")
     print(f"  • Delta UHI Intensity 30m T2-T1: {'YES' if export_delta_uhi_intensity_30m else 'NO'}")
-    print(f"  • Delta UHI 10m T2-T1: {'YES' if export_delta_uhi_10m else 'NO'}")
-    print(f"  • Delta UHI Intensity 10m T2-T1: {'YES' if export_delta_uhi_intensity_10m else 'NO'}")
     print(f"  • CDI Landsat (dLST_30m x dIndex, 30m): {'YES' if export_cdi_landsat else 'NO'}")
     print(f"  • CDI Sentinel-2 (dLST_30m x dIndex, 10m): {'YES' if export_cdi_sentinel2 else 'NO'}")
 
@@ -195,57 +161,6 @@ def export_bitemporal_results(
             print(f"  ✓ LST 30m T2 started")
         except Exception as e:
             print(f"  ⚠️ Failed: {e}")
-
-    # ==================== EXPORT LST 10m (DOWNSCALED) ====================
-    if export_lst_10m and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING LST 10m (DOWNSCALED)")
-        print("=" * 80)
-
-        for method in methods:
-            # T1
-            try:
-                print(f"\n📊 Exporting {method} 10m T1...")
-                lst_10m_t1 = results['t1']['methods'][method]['lst']
-                task_t1 = ee.batch.Export.image.toDrive(
-                    image=lst_10m_t1,
-                    description=f'LST_10m_{method}_{config["site_name"]}_T1',
-                    folder=config['export_folder'],
-                    fileNamePrefix=f'LST_10m_{method}_{config["site_name"]}_t1',
-                    region=roi,
-                    crs=config['export_crs'],
-                    scale=10,
-                    maxPixels=1e13,
-                    fileFormat='GeoTIFF',
-                    formatOptions={'cloudOptimized': True}
-                )
-                task_t1.start()
-                tasks.append(task_t1)
-                print(f"  ✓ {method} 10m T1 started")
-            except Exception as e:
-                print(f"  ⚠️ Failed: {e}")
-
-            # T2
-            try:
-                print(f"📊 Exporting {method} 10m T2...")
-                lst_10m_t2 = results['t2']['methods'][method]['lst']
-                task_t2 = ee.batch.Export.image.toDrive(
-                    image=lst_10m_t2,
-                    description=f'LST_10m_{method}_{config["site_name"]}_T2',
-                    folder=config['export_folder'],
-                    fileNamePrefix=f'LST_10m_{method}_{config["site_name"]}_t2',
-                    region=roi,
-                    crs=config['export_crs'],
-                    scale=10,
-                    maxPixels=1e13,
-                    fileFormat='GeoTIFF',
-                    formatOptions={'cloudOptimized': True}
-                )
-                task_t2.start()
-                tasks.append(task_t2)
-                print(f"  ✓ {method} 10m T2 started")
-            except Exception as e:
-                print(f"  ⚠️ Failed: {e}")
 
     # ==================== EXPORT UHI 30m (NORMALIZED) ====================
     if export_uhi_30m and stats_change and 'UHI_30m' in stats_change:
@@ -352,126 +267,6 @@ def export_bitemporal_results(
             print(f"  ⚠️ Failed to export UHI Intensity Classification 30m: {e}")
     elif export_uhi_intensity_30m:
         print("\n  ℹ️ UHI Intensity Classification 30m not available (stats_change not provided or no data)")
-
-    # ==================== EXPORT UHI 10m (NORMALIZED) ====================
-    if export_uhi_10m and stats_change and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING UHI 10m (NORMALIZED)")
-        print("=" * 80)
-        print("  Note: UHI values are z-scores (standard deviations from the mean)")
-
-        for method in methods:
-            uhi_key = f'UHI_{method}_10m'
-
-            if uhi_key not in stats_change:
-                print(f"\n  ℹ️ UHI 10m {method} not available in stats_change")
-                continue
-
-            try:
-                uhi_images = stats_change[uhi_key]['images']
-
-                # T1
-                if 't1' in uhi_images:
-                    print(f"\n🔥 Exporting UHI 10m {method} T1...")
-                    task_uhi10_t1 = ee.batch.Export.image.toDrive(
-                        image=uhi_images['t1'],
-                        description=f'UHI_10m_{method}_{config["site_name"]}_T1',
-                        folder=config['export_folder'],
-                        fileNamePrefix=f'UHI_10m_{method}_{config["site_name"]}_t1',
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task_uhi10_t1.start()
-                    tasks.append(task_uhi10_t1)
-                    print(f"  ✓ UHI 10m {method} T1 started")
-
-                # T2
-                if 't2' in uhi_images:
-                    print(f"🔥 Exporting UHI 10m {method} T2...")
-                    task_uhi10_t2 = ee.batch.Export.image.toDrive(
-                        image=uhi_images['t2'],
-                        description=f'UHI_10m_{method}_{config["site_name"]}_T2',
-                        folder=config['export_folder'],
-                        fileNamePrefix=f'UHI_10m_{method}_{config["site_name"]}_t2',
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task_uhi10_t2.start()
-                    tasks.append(task_uhi10_t2)
-                    print(f"  ✓ UHI 10m {method} T2 started")
-
-            except Exception as e:
-                print(f"  ⚠️ Failed to export UHI 10m {method}: {e}")
-    elif export_uhi_10m:
-        print("\n  ℹ️ UHI 10m not available (stats_change not provided or no UHI data)")
-
-    # ==================== EXPORT UHI INTENSITY CLASSIFICATION 10m ====================
-    if export_uhi_intensity_10m and stats_change and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING UHI INTENSITY CLASSIFICATION 10m (Deng et al. 2023)")
-        print("=" * 80)
-        print("  Note: Classes 1-LTZ, 2-SLTZ, 3-MTZ, 4-SHTZ, 5-HTZ")
-
-        for method in methods:
-            uhi_key = f'UHI_{method}_10m'
-
-            if uhi_key not in stats_change:
-                print(f"\n  ℹ️ UHI Intensity Classification 10m {method} not available in stats_change")
-                continue
-
-            try:
-                intensity_class = stats_change[uhi_key]['intensity_classification']
-
-                # T1
-                if 't1' in intensity_class:
-                    print(f"\n🔥 Exporting UHI Intensity Classification 10m {method} T1...")
-                    task_intensity10_t1 = ee.batch.Export.image.toDrive(
-                        image=intensity_class['t1'],
-                        description=f'UHI_Intensity_10m_{method}_{config["site_name"]}_T1',
-                        folder=config['export_folder'],
-                        fileNamePrefix=f'UHI_Intensity_10m_{method}_{config["site_name"]}_t1',
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task_intensity10_t1.start()
-                    tasks.append(task_intensity10_t1)
-                    print(f"  ✓ UHI Intensity Classification 10m {method} T1 started")
-
-                # T2
-                if 't2' in intensity_class:
-                    print(f"🔥 Exporting UHI Intensity Classification 10m {method} T2...")
-                    task_intensity10_t2 = ee.batch.Export.image.toDrive(
-                        image=intensity_class['t2'],
-                        description=f'UHI_Intensity_10m_{method}_{config["site_name"]}_T2',
-                        folder=config['export_folder'],
-                        fileNamePrefix=f'UHI_Intensity_10m_{method}_{config["site_name"]}_t2',
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task_intensity10_t2.start()
-                    tasks.append(task_intensity10_t2)
-                    print(f"  ✓ UHI Intensity Classification 10m {method} T2 started")
-
-            except Exception as e:
-                print(f"  ⚠️ Failed to export UHI Intensity Classification 10m {method}: {e}")
-    elif export_uhi_intensity_10m:
-        print("\n  ℹ️ UHI Intensity Classification 10m not available (stats_change not provided or no data)")
 
     # ==================== EXPORT LANDSAT INDICES ====================
     if export_landsat_indices and 'indices_landsat' in results:
@@ -892,39 +687,6 @@ def export_bitemporal_results(
     elif export_delta_lst_30m:
         print("\n  ℹ️ LST 30m not available for delta computation")
 
-    # ==================== EXPORT DELTA LST 10m (T2 - T1) ====================
-    if export_delta_lst_10m and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING DELTA LST 10m (T2 - T1)")
-        print("=" * 80)
-        print("  Note: Positive values = warming; units in degrees Celsius")
-
-        for method in methods:
-            try:
-                lst_10m_t1 = results['t1']['methods'][method]['lst']
-                lst_10m_t2 = results['t2']['methods'][method]['lst']
-                delta_lst = lst_10m_t2.subtract(lst_10m_t1).rename(f'Delta_LST_{method}_10m')
-                task_name = f"Delta_LST_10m_{method}_{config['site_name']}"
-                task = ee.batch.Export.image.toDrive(
-                    image=delta_lst.clip(roi),
-                    description=task_name,
-                    folder=config['export_folder'],
-                    fileNamePrefix=task_name,
-                    region=roi,
-                    crs=config['export_crs'],
-                    scale=10,
-                    maxPixels=1e13,
-                    fileFormat='GeoTIFF',
-                    formatOptions={'cloudOptimized': True}
-                )
-                task.start()
-                tasks.append(task)
-                print(f"  ✓ Delta LST 10m {method} started")
-            except Exception as e:
-                print(f"  ⚠️ Failed to export Delta LST 10m {method}: {e}")
-    elif export_delta_lst_10m:
-        print("\n  ℹ️ LST 10m methods not available for delta computation")
-
     # ==================== EXPORT DELTA LANDSAT INDICES (T2 - T1) ====================
     if export_delta_landsat_indices and 'indices_landsat' in results:
         print("\n" + "=" * 80)
@@ -1086,84 +848,6 @@ def export_bitemporal_results(
             print(f"  ⚠️ Failed to export Delta UHI Intensity 30m: {e}")
     elif export_delta_uhi_intensity_30m:
         print("\n  ℹ️ UHI Intensity 30m not available for delta computation")
-
-    # ==================== EXPORT DELTA UHI 10m (T2 - T1) ====================
-    if export_delta_uhi_10m and stats_change and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING DELTA UHI 10m (T2 - T1)")
-        print("=" * 80)
-        print("  Note: Delta of z-score UHI values per downscaling method")
-
-        for method in methods:
-            uhi_key = f'UHI_{method}_10m'
-            if uhi_key not in stats_change:
-                print(f"\n  ℹ️ UHI 10m {method} not available in stats_change")
-                continue
-            try:
-                uhi_images = stats_change[uhi_key]['images']
-                if 't1' in uhi_images and 't2' in uhi_images:
-                    delta_uhi = uhi_images['t2'].subtract(uhi_images['t1']).rename(f'Delta_UHI_{method}_10m')
-                    task_name = f"Delta_UHI_10m_{method}_{config['site_name']}"
-                    task = ee.batch.Export.image.toDrive(
-                        image=delta_uhi.clip(roi),
-                        description=task_name,
-                        folder=config['export_folder'],
-                        fileNamePrefix=task_name,
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task.start()
-                    tasks.append(task)
-                    print(f"  ✓ Delta UHI 10m {method} started")
-                else:
-                    print(f"  ℹ️ UHI 10m {method} images not available for both periods")
-            except Exception as e:
-                print(f"  ⚠️ Failed to export Delta UHI 10m {method}: {e}")
-    elif export_delta_uhi_10m:
-        print("\n  ℹ️ UHI 10m not available for delta computation")
-
-    # ==================== EXPORT DELTA UHI INTENSITY 10m (T2 - T1) ====================
-    if export_delta_uhi_intensity_10m and stats_change and methods:
-        print("\n" + "=" * 80)
-        print("EXPORTING DELTA UHI INTENSITY CLASSIFICATION 10m (T2 - T1)")
-        print("=" * 80)
-        print("  Note: Delta of class values (1-LTZ to 5-HTZ) per method; positive = warming shift")
-
-        for method in methods:
-            uhi_key = f'UHI_{method}_10m'
-            if uhi_key not in stats_change:
-                print(f"\n  ℹ️ UHI Intensity 10m {method} not available in stats_change")
-                continue
-            try:
-                intensity_class = stats_change[uhi_key]['intensity_classification']
-                if 't1' in intensity_class and 't2' in intensity_class:
-                    delta_intensity = intensity_class['t2'].subtract(intensity_class['t1']).rename(f'Delta_UHI_Intensity_{method}_10m')
-                    task_name = f"Delta_UHI_Intensity_10m_{method}_{config['site_name']}"
-                    task = ee.batch.Export.image.toDrive(
-                        image=delta_intensity.clip(roi),
-                        description=task_name,
-                        folder=config['export_folder'],
-                        fileNamePrefix=task_name,
-                        region=roi,
-                        crs=config['export_crs'],
-                        scale=10,
-                        maxPixels=1e13,
-                        fileFormat='GeoTIFF',
-                        formatOptions={'cloudOptimized': True}
-                    )
-                    task.start()
-                    tasks.append(task)
-                    print(f"  ✓ Delta UHI Intensity 10m {method} started")
-                else:
-                    print(f"  ℹ️ UHI Intensity 10m {method} not available for both periods")
-            except Exception as e:
-                print(f"  ⚠️ Failed to export Delta UHI Intensity 10m {method}: {e}")
-    elif export_delta_uhi_intensity_10m:
-        print("\n  ℹ️ UHI Intensity 10m not available for delta computation")
 
     # ==================== EXPORT CDI LANDSAT (dLST_30m x dIndex, 30m) ====================
     if export_cdi_landsat and 'indices_landsat' in results and 'lst_30m_t1' in results and 'lst_30m_t2' in results:

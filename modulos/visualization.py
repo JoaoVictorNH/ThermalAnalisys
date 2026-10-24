@@ -19,7 +19,7 @@ from modulos.image_processing import (
     process_sentinel2_image, process_sentinel2_median
 )
 from modulos.lst_analysis import (
-    calculate_10m_lst, calculate_uhi,
+    calculate_uhi,
     calculate_uhi_statistics, classify_uhi_areas,
     classify_uhi_intensity
 )
@@ -29,273 +29,141 @@ from modulos.spectral_analysis import (
 )
 
 
-def calculate_bitemporal_lst(config_t1, config_t2, scale_agg_t1=250,
-                             scale_agg_t2=250,
-                             mlr_list_ind_t1=['ndvi', 'ndbi'],
-                             mlr_list_ind_t2=['ndvi', 'ndbi'], methods=['RLS'],
-                             s2_collection_t1='COPERNICUS/S2_SR_HARMONIZED/',
-                             s2_collection_t2='COPERNICUS/S2_SR_HARMONIZED/',
-                             water_mask_t1=None, water_mask_t2=None,
-                             rf_n_trees=50, gb_n_trees=50, num_samples=5000):
+def _process_period(config, s2_collection, label):
     """
-    Calculate downscaled LST for two distinct periods.
+    Loads and processes Landsat (LST 30 m + SR bands) and Sentinel-2 for one period.
 
-    Args:
-        config_t1 (dict): Configuration for period T1
-        config_t2 (dict): Configuration for period T2
-        methods (list): List of downscaling methods
+    Uses the specific image IDs when both are present in the config; otherwise
+    falls back to the median of the filtered collections.
 
     Returns:
-        dict: Results for both periods
+        dict: s2 (ee.Image, 6 bands), s2_projection, ls_optical (ee.Image),
+              lst_celsius (ee.Image, band ST_B10), indices_landsat, indices_sentinel2
     """
     print("\n" + "=" * 80)
-    print("BITEMPORAL PROCESSING - LST DOWNSCALING")
+    print(f"PROCESSING PERIOD {label}")
     print("=" * 80)
 
-    results = {}
+    if config.get('landsat_id') and config.get('sentinel2_id'):
+        print(f"\n🎯 Using specific images for {label}")
+        print(f"   Landsat ID: {config['landsat_id']}")
+        print(f"   Sentinel-2 ID: {config['sentinel2_id']}")
 
-    # PERIOD T1
+        ls_image = get_selected_landsat_image(
+            config['landsat_id'], config['geometry'], config['landsat_type']
+        )
+        s2_image = get_selected_sentinel2_image(
+            config['sentinel2_id'], config['geometry'], s2_collection=s2_collection
+        )
+        s2, s2_proj = process_sentinel2_image(s2_image)
+        ls_optical, lst_celsius, _ = process_landsat_image(ls_image, s2_proj)
+    else:
+        print(f"\n📊 Using collection median for {label}")
+        s2, s2_proj = process_sentinel2_median(get_sentinel2_collection(config))
+        ls_optical, lst_celsius, _ = process_landsat_median(get_landsat_collection(config), s2_proj)
+
+    print(f"\n📊 Calculating Landsat spectral indices {label}...")
+    indices_landsat = calculate_spectral_indices_landsat(ls_optical)
+    print(f"📊 Calculating Sentinel-2 spectral indices {label}...")
+    indices_sentinel2 = calculate_spectral_indices_sentinel2(s2)
+
+    return {
+        's2': s2,
+        's2_projection': s2_proj,
+        'ls_optical': ls_optical,
+        'lst_celsius': lst_celsius,
+        'indices_landsat': indices_landsat,
+        'indices_sentinel2': indices_sentinel2,
+    }
+
+
+def calculate_bitemporal_lst(config_t1, config_t2,
+                             s2_collection_t1='COPERNICUS/S2_SR_HARMONIZED',
+                             s2_collection_t2='COPERNICUS/S2_SR_HARMONIZED'):
+    """
+    Bitemporal processing: Landsat LST at native 30 m, Sentinel-2 (10 m),
+    Landsat and Sentinel-2 spectral indices, and Sentinel-1 SAR composites.
+
+    Args:
+        config_t1 (dict): Configuration for period T1 (create_tenst_config).
+        config_t2 (dict): Configuration for period T2.
+        s2_collection_t1 (str): Sentinel-2 collection used to load the T1 image ID.
+        s2_collection_t2 (str): Sentinel-2 collection used to load the T2 image ID.
+
+    Returns:
+        dict: {'t1': {...}, 't2': {...}, 's2_median_t1/t2', 's1_t1/t2',
+               'lst_30m_t1/t2', 'indices_landsat': {'t1','t2'},
+               'indices_sentinel2': {'t1','t2'}}
+    """
     print("\n" + "=" * 80)
-    print("PROCESSING PERIOD T1")
+    print("BITEMPORAL PROCESSING - LST 30m + SPECTRAL INDICES")
     print("=" * 80)
 
-    # Fetch or select T1 images
-    if config_t1.get('landsat_id') and config_t1.get('sentinel2_id'):
-        print("\n🎯 Using specific images for T1")
-        print(f"   Landsat ID: {config_t1['landsat_id']}")
-        print(f"   Sentinel-2 ID: {config_t1['sentinel2_id']}")
+    p1 = _process_period(config_t1, s2_collection_t1, 'T1')
+    p2 = _process_period(config_t2, s2_collection_t2, 'T2')
 
-        # Get specific images
-        ls_image_t1 = get_selected_landsat_image(
-            config_t1['landsat_id'],
-            config_t1['geometry'],
-            config_t1['landsat_type']
-        )
-        s2_image_t1 = get_selected_sentinel2_image(
-            config_t1['sentinel2_id'],
-            config_t1['geometry'],
-            s2_collection=s2_collection_t1
-        )
-
-        # Process specific images
-        s2_median_t1, s2_proj_t1 = process_sentinel2_image(s2_image_t1)
-        ls_optical_t1, lst_celsius_t1, ls_proj_t1 = process_landsat_image(
-                                ls_image_t1,
-                                s2_proj_t1
-                            )
-    else:
-        print("\n📊 Using collection median for T1")
-
-        # Fetch T1 collections
-        s2_collection_t1 = get_sentinel2_collection(config_t1)
-        ls_collection_t1 = get_landsat_collection(config_t1)
-
-        # Process T1 medians
-        s2_median_t1, s2_proj_t1 = process_sentinel2_median(s2_collection_t1)
-        ls_optical_t1, lst_celsius_t1, ls_proj_t1 = process_landsat_median(
-                              ls_collection_t1,
-                              s2_proj_t1
-                          )
-
-    # Calculate and store T1 spectral indices
-    print("\n📊 Calculating Landsat spectral indices T1...")
-    indices_landsat_t1 = calculate_spectral_indices_landsat(ls_optical_t1)
-
-    print("📊 Calculating Sentinel-2 spectral indices T1...")
-    # Prepare Sentinel-2 image for index calculation
-    if isinstance(s2_median_t1, dict):
-        s2_bands_list_t1 = []
-        for band_name in ['B2', 'B3', 'B4', 'B8', 'B11', 'B12']:
-            if band_name in s2_median_t1:
-                s2_bands_list_t1.append(s2_median_t1[band_name].rename(band_name))
-        s2_image_t1 = ee.Image.cat(s2_bands_list_t1)
-    else:
-        s2_image_t1 = s2_median_t1
-
-    indices_sentinel2_t1 = calculate_spectral_indices_sentinel2(s2_image_t1)
-
-    # Calculate LST 10m T1
-    results_t1 = calculate_10m_lst(
-        config_t1,
-        s2_median_t1,
-        s2_proj_t1,
-        ls_optical_t1,
-        lst_celsius_t1,
-        scale_agg=scale_agg_t1,
-        mlr_list_ind=mlr_list_ind_t1,
-        methods=methods,
-        water_mask=water_mask_t1,
-        rf_n_trees=rf_n_trees,
-        gb_n_trees=gb_n_trees,
-        num_samples=num_samples
-    )
-
-    # PERIOD T2
-    print("\n" + "=" * 80)
-    print("PROCESSING PERIOD T2")
-    print("=" * 80)
-
-    # Fetch or select T2 images
-    if config_t2.get('landsat_id') and config_t2.get('sentinel2_id'):
-        print("\n🎯 Using specific images for T2")
-        print(f"   Landsat ID: {config_t2['landsat_id']}")
-        print(f"   Sentinel-2 ID: {config_t2['sentinel2_id']}")
-
-        # Get specific images
-        ls_image_t2 = get_selected_landsat_image(
-            config_t2['landsat_id'],
-            config_t2['geometry'],
-            config_t2['landsat_type']
-        )
-        s2_image_t2 = get_selected_sentinel2_image(
-            config_t2['sentinel2_id'],
-            config_t2['geometry'],
-            s2_collection=s2_collection_t2
-        )
-
-        # Process specific images
-        s2_median_t2, s2_proj_t2 = process_sentinel2_image(s2_image_t2)
-        ls_optical_t2, lst_celsius_t2, ls_proj_t2 = process_landsat_image(
-                                ls_image_t2,
-                                s2_proj_t2
-                                )
-    else:
-        print("\n📊 Using collection median for T2")
-
-        # Fetch T2 collections
-        s2_collection_t2 = get_sentinel2_collection(config_t2)
-        ls_collection_t2 = get_landsat_collection(config_t2)
-
-        # Process T2 medians
-        s2_median_t2, s2_proj_t2 = process_sentinel2_median(s2_collection_t2)
-        ls_optical_t2, lst_celsius_t2, ls_proj_t2 = process_landsat_median(
-                                ls_collection_t2,
-                                s2_proj_t2
-                            )
-
-    # Calculate and store T2 spectral indices
-    print("\n📊 Calculating Landsat spectral indices T2...")
-    indices_landsat_t2 = calculate_spectral_indices_landsat(ls_optical_t2)
-
-    print("📊 Calculating Sentinel-2 spectral indices T2...")
-    # Prepare Sentinel-2 image for index calculation
-    if isinstance(s2_median_t2, dict):
-        s2_bands_list_t2 = []
-        for band_name in ['B2', 'B3', 'B4', 'B8', 'B11', 'B12']:
-            if band_name in s2_median_t2:
-                s2_bands_list_t2.append(s2_median_t2[band_name].rename(band_name))
-        s2_image_t2 = ee.Image.cat(s2_bands_list_t2)
-    else:
-        s2_image_t2 = s2_median_t2
-
-    indices_sentinel2_t2 = calculate_spectral_indices_sentinel2(s2_image_t2)
-
-    # Calculate LST 10m T2
-    results_t2 = calculate_10m_lst(
-        config_t2,
-        s2_median_t2,
-        s2_proj_t2,
-        ls_optical_t2,
-        lst_celsius_t2,
-        scale_agg=scale_agg_t2,
-        mlr_list_ind=mlr_list_ind_t2,
-        methods=methods,
-        water_mask=water_mask_t2,
-        rf_n_trees=rf_n_trees,
-        gb_n_trees=gb_n_trees,
-        num_samples=num_samples
-    )
-
-# PROCESS SENTINEL-1 FOR BOTH PERIODS
+    # ── Sentinel-1 composites (input of the change detection model) ─────────
     print("\n" + "=" * 80)
     print("PROCESSING SENTINEL-1 SAR")
     print("=" * 80)
 
-    s1_t1 = None
-    s1_t2 = None
+    s1 = {}
+    for key, cfg in (('t1', config_t1), ('t2', config_t2)):
+        s1[key] = None
+        if cfg.get('sentinel2_id'):
+            print(f"\n📡 Generating Sentinel-1 composite {key.upper()}...")
+            try:
+                s1[key] = generate_sentinel1_composite_from_s2_date(
+                    cfg['geometry'], cfg['sentinel2_id'], polarizations=['VV', 'VH']
+                )
+                print(f"   ✓ Sentinel-1 {key.upper()} processed")
+            except Exception as e:
+                print(f"   ⚠️ Error processing Sentinel-1 {key.upper()}: {e}")
 
-    # Generate S1 T1 if Sentinel-2 ID is available
-    if config_t1.get('sentinel2_id'):
-        print("\n📡 Generating Sentinel-1 composite T1...")
-        try:
-            s1_t1 = generate_sentinel1_composite_from_s2_date(
-                config_t1['geometry'],
-                config_t1['sentinel2_id'],
-                polarizations=['VV', 'VH']
-            )
-            print("   ✓ Sentinel-1 T1 processed")
-        except Exception as e:
-            print(f"   ⚠️ Error processing Sentinel-1 T1: {e}")
-
-    # Generate S1 T2 if Sentinel-2 ID is available
-    if config_t2.get('sentinel2_id'):
-        print("\n📡 Generating Sentinel-1 composite T2...")
-        try:
-            s1_t2 = generate_sentinel1_composite_from_s2_date(
-                config_t2['geometry'],
-                config_t2['sentinel2_id'],
-                polarizations=['VV', 'VH']
-            )
-            print("   ✓ Sentinel-1 T2 processed")
-        except Exception as e:
-            print(f"   ⚠️ Error processing Sentinel-1 T2: {e}")
-
-    # Compile results
-    # Add original images to individual results
-    results_t1['landsat_image'] = ls_optical_t1
-    results_t1['sentinel2_image'] = s2_median_t1
-    results_t1['ls_optical'] = ls_optical_t1
-    results_t1['lst_celsius'] = lst_celsius_t1
-
-    results_t2['landsat_image'] = ls_optical_t2
-    results_t2['sentinel2_image'] = s2_median_t2
-    results_t2['ls_optical'] = ls_optical_t2
-    results_t2['lst_celsius'] = lst_celsius_t2
+    def _period_result(cfg, p):
+        return {
+            'config': cfg,
+            'lst_30m': p['lst_celsius'],
+            'lst_celsius': p['lst_celsius'],
+            's2_projection': p['s2_projection'],
+            'sentinel2_image': p['s2'],
+            'landsat_image': p['ls_optical'],
+            'ls_optical': p['ls_optical'],
+        }
 
     results = {
-        't1': results_t1,
-        't2': results_t2,
-        's2_median_t1': s2_median_t1,
-        's2_median_t2': s2_median_t2,
-        's1_t1': s1_t1,
-        's1_t2': s1_t2,
-        'lst_30m_t1': lst_celsius_t1,
-        'lst_30m_t2': lst_celsius_t2,
-        'indices_landsat': {
-            't1': indices_landsat_t1,
-            't2': indices_landsat_t2
-        },
-        'indices_sentinel2': {
-            't1': indices_sentinel2_t1,
-            't2': indices_sentinel2_t2
-        }
+        't1': _period_result(config_t1, p1),
+        't2': _period_result(config_t2, p2),
+        's2_median_t1': p1['s2'],
+        's2_median_t2': p2['s2'],
+        's1_t1': s1['t1'],
+        's1_t2': s1['t2'],
+        'lst_30m_t1': p1['lst_celsius'],
+        'lst_30m_t2': p2['lst_celsius'],
+        'indices_landsat': {'t1': p1['indices_landsat'], 't2': p2['indices_landsat']},
+        'indices_sentinel2': {'t1': p1['indices_sentinel2'], 't2': p2['indices_sentinel2']},
     }
 
     print("\n✅ Bitemporal processing complete!")
-
     return results
 
 
-def calculate_thermal_change_statistics(results, geometry, methods=None):
+def calculate_thermal_change_statistics(results, geometry):
     """
     Calculate thermal change statistics between two periods.
 
     Args:
         results (dict): Bitemporal processing results
         geometry: Region of interest geometry
-        methods (list): List of methods to analyze (None = all)
 
     Returns:
-        dict: Change statistics for each method
+        dict: {'LST_30m': {...}, 'UHI_30m': {..., 'images', 'intensity_classification'}}
     """
     print("\n" + "=" * 80)
     print("THERMAL CHANGE STATISTICS")
     print("=" * 80)
 
     stats = {}
-
-    if methods is None:
-        methods = list(results['t1']['methods'].keys())
 
     # ====================================================================
     # PART 1: LST ANALYSIS (LAND SURFACE TEMPERATURE)
@@ -348,64 +216,6 @@ def calculate_thermal_change_statistics(results, geometry, methods=None):
         't2': stats_30m_t2,
         'delta': delta_30m
     }
-
-    # LST 10m (Downscaled) for each method
-    for method in methods:
-        print(f"\n🌡️  LAND SURFACE TEMPERATURE - {method} 10m (Downscaled)")
-        print("-" * 80)
-
-        lst_10m_t1 = results['t1']['methods'][method]['lst']
-        lst_10m_t2 = results['t2']['methods'][method]['lst']
-
-        # Determine band name based on method
-        if method == 'MLR':
-            band = 'constant'
-        else:
-            band = 'B4'
-
-        stats_10m_t1 = lst_10m_t1.reduceRegion(
-            reducer=ee.Reducer.minMax().combine(ee.Reducer.mean(), '', True).combine(
-                ee.Reducer.stdDev(), '', True
-            ),
-            geometry=geometry,
-            scale=10,
-            maxPixels=1e12
-        ).getInfo()
-
-        stats_10m_t2 = lst_10m_t2.reduceRegion(
-            reducer=ee.Reducer.minMax().combine(ee.Reducer.mean(), '', True).combine(
-                ee.Reducer.stdDev(), '', True
-            ),
-            geometry=geometry,
-            scale=10,
-            maxPixels=1e12
-        ).getInfo()
-
-        delta_10m = {
-            'min': stats_10m_t2[f'{band}_min'] - stats_10m_t1[f'{band}_min'],
-            'mean': stats_10m_t2[f'{band}_mean'] - stats_10m_t1[f'{band}_mean'],
-            'max': stats_10m_t2[f'{band}_max'] - stats_10m_t1[f'{band}_max'],
-            'stdDev': stats_10m_t2[f'{band}_stdDev'] - stats_10m_t1[f'{band}_stdDev']
-        }
-
-        print(f"   T1 - Min: {stats_10m_t1[f'{band}_min']:.2f}°C | "
-              f"Mean: {stats_10m_t1[f'{band}_mean']:.2f}°C | "
-              f"Max: {stats_10m_t1[f'{band}_max']:.2f}°C | "
-              f"StdDev: {stats_10m_t1[f'{band}_stdDev']:.2f}°C")
-        print(f"   T2 - Min: {stats_10m_t2[f'{band}_min']:.2f}°C | "
-              f"Mean: {stats_10m_t2[f'{band}_mean']:.2f}°C | "
-              f"Max: {stats_10m_t2[f'{band}_max']:.2f}°C | "
-              f"StdDev: {stats_10m_t2[f'{band}_stdDev']:.2f}°C")
-        print(f"   Δ  - Min: {delta_10m['min']:+.2f}°C | "
-              f"Mean: {delta_10m['mean']:+.2f}°C | "
-              f"Max: {delta_10m['max']:+.2f}°C | "
-              f"StdDev: {delta_10m['stdDev']:+.2f}°C")
-
-        stats[f'{method}_10m'] = {
-            't1': stats_10m_t1,
-            't2': stats_10m_t2,
-            'delta': delta_10m
-        }
 
     # ====================================================================
     # PART 2: URBAN HEAT ISLAND ANALYSIS (NORMALIZED UHI)
@@ -534,132 +344,10 @@ def calculate_thermal_change_statistics(results, geometry, methods=None):
         'area_classification_t2': area_categories_t2
     }
 
-    # UHI for LST 10m (for each method)
-    for method in methods:
-        print(f"\n📊 UHI 10m - {method}")
-        print("-" * 80)
-
-        # Get LST images
-        lst_10m_t1 = results['t1']['methods'][method]['lst']
-        lst_10m_t2 = results['t2']['methods'][method]['lst']
-
-        # Calculate UHI for T1
-        uhi_10m_t1, lst_stats_10m_t1 = calculate_uhi(lst_10m_t1, geometry=geometry, scale=10)
-        uhi_stats_10m_t1_dict = calculate_uhi_statistics(uhi_10m_t1, geometry=geometry, scale=10)
-
-        # Classify UHI intensity T1
-        uhi_intensity_10m_t1 = classify_uhi_intensity(uhi_10m_t1)
-
-        lst_mean_10m_t1, lst_std_10m_t1 = ee.List(
-            [lst_stats_10m_t1['lst_mean'], lst_stats_10m_t1['lst_std']]
-        ).getInfo()
-
-        # Calculate UHI for T2
-        uhi_10m_t2, lst_stats_10m_t2 = calculate_uhi(lst_10m_t2, geometry=geometry, scale=10)
-        uhi_stats_10m_t2_dict = calculate_uhi_statistics(uhi_10m_t2, geometry=geometry, scale=10)
-
-        # Classify UHI intensity T2
-        uhi_intensity_10m_t2 = classify_uhi_intensity(uhi_10m_t2)
-
-        lst_mean_10m_t2, lst_std_10m_t2 = ee.List(
-            [lst_stats_10m_t2['lst_mean'], lst_stats_10m_t2['lst_std']]
-        ).getInfo()
-
-        # Calculate equivalent temperatures
-        uhi_min_10m_t1 = uhi_stats_10m_t1_dict.get('UHI_min', -3)
-        uhi_max_10m_t1 = uhi_stats_10m_t1_dict.get('UHI_max', 3)
-        temp_min_10m_t1 = lst_mean_10m_t1 + (uhi_min_10m_t1 * lst_std_10m_t1)
-        temp_max_10m_t1 = lst_mean_10m_t1 + (uhi_max_10m_t1 * lst_std_10m_t1)
-
-        uhi_min_10m_t2 = uhi_stats_10m_t2_dict.get('UHI_min', -3)
-        uhi_max_10m_t2 = uhi_stats_10m_t2_dict.get('UHI_max', 3)
-        temp_min_10m_t2 = lst_mean_10m_t2 + (uhi_min_10m_t2 * lst_std_10m_t2)
-        temp_max_10m_t2 = lst_mean_10m_t2 + (uhi_max_10m_t2 * lst_std_10m_t2)
-
-        # Print results
-        print(f"\n   T1:")
-        print(f"      LST Base     : Mean = {lst_mean_10m_t1:.2f}°C | StdDev = {lst_std_10m_t1:.2f}°C")
-        print(f"      UHI (z-score): Mean = {uhi_stats_10m_t1_dict.get('UHI_mean', 0):.3f} | "
-              f"StdDev = {uhi_stats_10m_t1_dict.get('UHI_stdDev', 0):.3f}")
-        print(f"      UHI Range: Min = {uhi_min_10m_t1:.2f} ({temp_min_10m_t1:.1f}°C) | "
-              f"Max = {uhi_max_10m_t1:.2f} ({temp_max_10m_t1:.1f}°C)")
-
-        print(f"\n   T2:")
-        print(f"      LST Base     : Mean = {lst_mean_10m_t2:.2f}°C | StdDev = {lst_std_10m_t2:.2f}°C")
-        print(f"      UHI (z-score): Mean = {uhi_stats_10m_t2_dict.get('UHI_mean', 0):.3f} | "
-              f"StdDev = {uhi_stats_10m_t2_dict.get('UHI_stdDev', 0):.3f}")
-        print(f"      UHI Range: Min = {uhi_min_10m_t2:.2f} ({temp_min_10m_t2:.1f}°C) | "
-              f"Max = {uhi_max_10m_t2:.2f} ({temp_max_10m_t2:.1f}°C)")
-
-        # Change analysis
-        delta_uhi_max_10m = uhi_max_10m_t2 - uhi_max_10m_t1
-        delta_temp_hotspot_10m = temp_max_10m_t2 - temp_max_10m_t1
-
-        print(f"\n   Change T1→T2:")
-        print(f"      Δ UHI Max    : {delta_uhi_max_10m:+.2f} (from {uhi_max_10m_t1:.2f} to {uhi_max_10m_t2:.2f})")
-        print(f"      Δ Temp Hotspot: {delta_temp_hotspot_10m:+.2f}°C (from {temp_max_10m_t1:.1f}°C to {temp_max_10m_t2:.1f}°C)")
-
-        # Classify areas T1
-        print(f"\n   Intensity Classification (T1) - Deng et al. (2023):")
-        area_categories_10m_t1 = classify_uhi_areas(uhi_10m_t1, geometry, scale=10)
-        print(f"      1. LTZ  - Low Temperature (UHI < -1):          {area_categories_10m_t1['LTZ']:.2f} km²")
-        print(f"      2. SLTZ - Sub-Low Temp (-1 ≤ UHI < -0.5):      {area_categories_10m_t1['SLTZ']:.2f} km²")
-        print(f"      3. MTZ  - Medium Temp (-0.5 ≤ UHI ≤ 0.5):      {area_categories_10m_t1['MTZ']:.2f} km²")
-        print(f"      4. SHTZ - Sub-High Temp (0.5 < UHI ≤ 1):       {area_categories_10m_t1['SHTZ']:.2f} km²")
-        print(f"      5. HTZ  - High Temperature (UHI > 1):          {area_categories_10m_t1['HTZ']:.2f} km²")
-        print(f"      Total: {area_categories_10m_t1['total']:.2f} km²")
-
-        # Classify areas T2
-        print(f"\n   Intensity Classification (T2) - Deng et al. (2023):")
-        area_categories_10m_t2 = classify_uhi_areas(uhi_10m_t2, geometry, scale=10)
-        print(f"      1. LTZ  - Low Temperature (UHI < -1):          {area_categories_10m_t2['LTZ']:.2f} km²")
-        print(f"      2. SLTZ - Sub-Low Temp (-1 ≤ UHI < -0.5):      {area_categories_10m_t2['SLTZ']:.2f} km²")
-        print(f"      3. MTZ  - Medium Temp (-0.5 ≤ UHI ≤ 0.5):      {area_categories_10m_t2['MTZ']:.2f} km²")
-        print(f"      4. SHTZ - Sub-High Temp (0.5 < UHI ≤ 1):       {area_categories_10m_t2['SHTZ']:.2f} km²")
-        print(f"      5. HTZ  - High Temperature (UHI > 1):          {area_categories_10m_t2['HTZ']:.2f} km²")
-        print(f"      Total: {area_categories_10m_t2['total']:.2f} km²")
-
-        # Calculate area changes
-        print(f"\n   Area Change T1→T2:")
-        print(f"      Δ LTZ  : {area_categories_10m_t2['LTZ'] - area_categories_10m_t1['LTZ']:+.2f} km²")
-        print(f"      Δ SLTZ : {area_categories_10m_t2['SLTZ'] - area_categories_10m_t1['SLTZ']:+.2f} km²")
-        print(f"      Δ MTZ  : {area_categories_10m_t2['MTZ'] - area_categories_10m_t1['MTZ']:+.2f} km²")
-        print(f"      Δ SHTZ : {area_categories_10m_t2['SHTZ'] - area_categories_10m_t1['SHTZ']:+.2f} km²")
-        print(f"      Δ HTZ  : {area_categories_10m_t2['HTZ'] - area_categories_10m_t1['HTZ']:+.2f} km²")
-
-        # Store data
-        stats[f'UHI_{method}_10m'] = {
-            't1': {
-                'uhi_stats': uhi_stats_10m_t1_dict,
-                'lst_mean': lst_mean_10m_t1,
-                'lst_std': lst_std_10m_t1,
-                'temp_range': {'min': temp_min_10m_t1, 'max': temp_max_10m_t1}
-            },
-            't2': {
-                'uhi_stats': uhi_stats_10m_t2_dict,
-                'lst_mean': lst_mean_10m_t2,
-                'lst_std': lst_std_10m_t2,
-                'temp_range': {'min': temp_min_10m_t2, 'max': temp_max_10m_t2}
-            },
-            'delta': {
-                'uhi_max': delta_uhi_max_10m,
-                'temp_hotspot': delta_temp_hotspot_10m
-            },
-            'images': {
-                't1': uhi_10m_t1,
-                't2': uhi_10m_t2
-            },
-            'intensity_classification': {
-                't1': uhi_intensity_10m_t1,
-                't2': uhi_intensity_10m_t2
-            },
-            'area_classification_t1': area_categories_10m_t1,  # NOVO
-            'area_classification_t2': area_categories_10m_t2   # NOVO
-        }
     return stats
 
 
-def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
+def visualize_bitemporal_results(results, geometry, zoom=15,
                                  lst_min=20, lst_max=60,
                                  uhi_min=-4, uhi_max=4):
     """
@@ -668,7 +356,6 @@ def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
     Args:
         results (dict): Bitemporal processing results
         geometry: Region of interest geometry
-        methods (list): Methods to visualize
         zoom (int): Map zoom level
         lst_min (float): Minimum LST value for visualization
         lst_max (float): Maximum LST value for visualization
@@ -718,24 +405,8 @@ def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
         results['lst_30m_t2'].clip(geometry),
         {'min': lst_min, 'max': lst_max, 'palette': lst_palette},
         'LST 30m T2 (Landsat)',
-        False if not methods else False
+        False
     )
-
-    # LST 10m for each method
-    for method in methods:
-        Map.addLayer(
-            results['t1']['methods'][method]['lst'].clip(geometry),
-            {'min': lst_min, 'max': lst_max, 'palette': lst_palette},
-            f'LST 10m {method} T1',
-            False
-        )
-
-        Map.addLayer(
-            results['t2']['methods'][method]['lst'].clip(geometry),
-            {'min': lst_min, 'max': lst_max, 'palette': lst_palette},
-            f'LST 10m {method} T2',
-            False
-        )
 
     # === URBAN HEAT ISLAND (UHI) VISUALIZATION ===
     print("   Adding UHI layers...")
@@ -762,30 +433,6 @@ def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
         False
     )
 
-    # UHI for LST 10m of each method
-    for method in methods:
-        lst_10m_t1 = results['t1']['methods'][method]['lst']
-        lst_10m_t2 = results['t2']['methods'][method]['lst']
-
-        # Calculate UHI
-        uhi_10m_t1, _ = calculate_uhi(lst_10m_t1, geometry, scale=10)
-        uhi_10m_t2, _ = calculate_uhi(lst_10m_t2, geometry, scale=10)
-
-        # Add UHI 10m layers
-        Map.addLayer(
-            uhi_10m_t1.clip(geometry),
-            {'min': uhi_min, 'max': uhi_max, 'palette': uhi_palette},
-            f'UHI 10m {method} T1',
-            False
-        )
-
-        Map.addLayer(
-            uhi_10m_t2.clip(geometry),
-            {'min': uhi_min, 'max': uhi_max, 'palette': uhi_palette},
-            f'UHI 10m {method} T2',
-            False
-        )
-
     # === UHI INTENSITY CLASSIFICATION VISUALIZATION (Deng et al. 2023) ===
     print("   Adding UHI Intensity Classification layers...")
 
@@ -810,35 +457,6 @@ def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
         'Classif. UHI 30m T2',
         True
     )
-
-    # UHI intensity classification 10m for each method
-    for method in methods:
-        lst_10m_t1 = results['t1']['methods'][method]['lst']
-        lst_10m_t2 = results['t2']['methods'][method]['lst']
-
-        # Calculate UHI
-        uhi_10m_t1, _ = calculate_uhi(lst_10m_t1, geometry, scale=10)
-        uhi_10m_t2, _ = calculate_uhi(lst_10m_t2, geometry, scale=10)
-
-        # Classify intensity
-        uhi_intensity_10m_t1 = classify_uhi_intensity(uhi_10m_t1)
-        uhi_intensity_10m_t2 = classify_uhi_intensity(uhi_10m_t2)
-
-        # Add layers
-        Map.addLayer(
-            uhi_intensity_10m_t1.clip(geometry),
-            {'min': 1, 'max': 5, 'palette': intensity_uhi_palette, 'opacity': 0.4},
-            f'Classif. UHI 10m {method} T1',
-            False
-        )
-
-        Map.addLayer(
-            uhi_intensity_10m_t2.clip(geometry),
-            {'min': 1, 'max': 5, 'palette': intensity_uhi_palette, 'opacity': 0.4},
-            f'Classif. UHI 10m {method} T2',
-            False
-        )
-
 
     # === ADD LEGENDS ===
     print("   Adding legends...")
@@ -873,8 +491,6 @@ def visualize_bitemporal_results(results, geometry, methods=['RLS'], zoom=15,
         '4 - SHTZ (Sub-High)': intensity_uhi_palette[3],
         '5 - HTZ (High Temp)': intensity_uhi_palette[4]
     }
-    uhi_class_items = list(uhi_class_legend.items())
-
     Map.add_legend(
         title='UHI Classification (Deng et al. 2023)',
         legend_dict=uhi_class_legend,
@@ -1731,21 +1347,6 @@ def create_interactive_analysis_map(results_bitemporal, roi, results_integration
         plt.close(fig)
         b64 = base64.b64encode(buf.getvalue()).decode()
         return f'<img src="data:image/png;base64,{b64}" style="max-width:430px;">'
-
-    def _print_class_table(title, rows, method_note=None):
-        """Prints a classification table: (abbrev, interval, description)."""
-        w1, w2, w3 = 6, 24, 44
-        bar = '  ' + '─' * (w1 + w2 + w3 + 6)
-        print(f'\n  {"=" * (w1 + w2 + w3 + 6)}')
-        print(f'  CLASSIFICATION: {title}')
-        if method_note:
-            print(f'  Threshold method: {method_note}')
-        print(f'  {"=" * (w1 + w2 + w3 + 6)}')
-        print(f'  {"Abbrev.":<{w1}}  {"Interval":<{w2}}  {"Interpretation":<{w3}}')
-        print(bar)
-        for a, iv, desc in rows:
-            print(f'  {a:<{w1}}  {iv:<{w2}}  {desc:<{w3}}')
-        print(bar)
 
     # symmetric proportional bounds for 5 classes: [-dmax, -0.6d, -0.2d, +0.2d, +0.6d, +dmax]
     _b = [round(-_dmax + i * 0.4 * _dmax, 6) for i in range(6)]  # 6 bordas, 5 classes
