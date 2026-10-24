@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 # --- Inter-module imports ---
 from modulos.image_processing import (
-    generate_sentinel1_composite_from_s2_date,
+    generate_sentinel1_composite, period_center_date,
     get_landsat_collection, get_selected_landsat_image,
     get_selected_sentinel2_image, get_sentinel2_collection, get_s2_collection_name,
     process_landsat_image, process_landsat_median,
@@ -36,6 +36,10 @@ def _process_period(config, s2_collection, label):
     Uses the specific image IDs when both are present in the config; otherwise
     falls back to the median of the filtered collections.
 
+    Landsat (LST) is loaded over the ROI ∪ thermal reference area, so that the
+    SUHI z-score can use the reference (e.g. the whole urban perimeter) while
+    the analysis stays on the ROI. Sentinel-2 stays clipped to the ROI.
+
     Returns:
         dict: s2 (ee.Image, 6 bands), s2_projection, ls_optical (ee.Image),
               lst_celsius (ee.Image, band ST_B10), indices_landsat, indices_sentinel2
@@ -44,13 +48,17 @@ def _process_period(config, s2_collection, label):
     print(f"PROCESSING PERIOD {label}")
     print("=" * 80)
 
+    ref = config.get('reference_geometry')
+    ls_geometry = (config['geometry'] if ref is None or ref is config['geometry']
+                   else config['geometry'].union(ref, 1))
+
     if config.get('landsat_id') and config.get('sentinel2_id'):
         print(f"\n🎯 Using specific images for {label}")
         print(f"   Landsat ID: {config['landsat_id']}")
         print(f"   Sentinel-2 ID: {config['sentinel2_id']}")
 
         ls_image = get_selected_landsat_image(
-            config['landsat_id'], config['geometry'], config['landsat_type']
+            config['landsat_id'], ls_geometry, config['landsat_type']
         )
         s2_image = get_selected_sentinel2_image(
             config['sentinel2_id'], config['geometry'], s2_collection=s2_collection
@@ -60,7 +68,8 @@ def _process_period(config, s2_collection, label):
     else:
         print(f"\n📊 Using collection median for {label}")
         s2, s2_proj = process_sentinel2_median(get_sentinel2_collection(config))
-        ls_optical, lst_celsius, _ = process_landsat_median(get_landsat_collection(config), s2_proj)
+        ls_optical, lst_celsius, _ = process_landsat_median(
+            get_landsat_collection({**config, 'geometry': ls_geometry}), s2_proj)
 
     print(f"\n📊 Calculating Landsat spectral indices {label}...")
     indices_landsat = calculate_spectral_indices_landsat(ls_optical)
@@ -75,6 +84,24 @@ def _process_period(config, s2_collection, label):
         'indices_landsat': indices_landsat,
         'indices_sentinel2': indices_sentinel2,
     }
+
+
+def _reference_dates(cfg):
+    """
+    Acquisition dates of a period: taken from the Landsat / Sentinel-2 IDs when
+    given, otherwise the middle of the period (median composite).
+    Returns {'landsat': 'YYYY-MM-DD', 'sentinel2': 'YYYY-MM-DD', 'composite': bool}.
+    """
+    mid = period_center_date(cfg['start_date'], cfg['end_date'])
+    ls_id, s2_id = cfg.get('landsat_id'), cfg.get('sentinel2_id')
+    use_ids = bool(ls_id and s2_id)
+
+    def _fmt(d):
+        return f'{d[:4]}-{d[4:6]}-{d[6:8]}'
+
+    ls_date = _fmt(str(ls_id).split('_')[-1]) if use_ids else mid
+    s2_date = _fmt(str(s2_id)[:8]) if use_ids else mid
+    return {'landsat': ls_date, 'sentinel2': s2_date, 'composite': not use_ids}
 
 
 def calculate_bitemporal_lst(config_t1, config_t2,
@@ -109,18 +136,19 @@ def calculate_bitemporal_lst(config_t1, config_t2,
     print("PROCESSING SENTINEL-1 SAR")
     print("=" * 80)
 
-    s1 = {}
+    s1, dates = {}, {}
     for key, cfg in (('t1', config_t1), ('t2', config_t2)):
         s1[key] = None
-        if cfg.get('sentinel2_id'):
-            print(f"\n📡 Generating Sentinel-1 composite {key.upper()}...")
-            try:
-                s1[key] = generate_sentinel1_composite_from_s2_date(
-                    cfg['geometry'], cfg['sentinel2_id'], polarizations=['VV', 'VH']
-                )
-                print(f"   ✓ Sentinel-1 {key.upper()} processed")
-            except Exception as e:
-                print(f"   ⚠️ Error processing Sentinel-1 {key.upper()}: {e}")
+        dates[key] = _reference_dates(cfg)
+        # Centre of the S1 window: the Sentinel-2 date, or the middle of the period
+        # when the Sentinel-2 median is used (no image IDs).
+        center = dates[key]['sentinel2']
+        print(f"\n📡 Generating Sentinel-1 composite {key.upper()} (±30 days around {center})...")
+        try:
+            s1[key] = generate_sentinel1_composite(cfg['geometry'], center, polarizations=['VV', 'VH'])
+            print(f"   ✓ Sentinel-1 {key.upper()} processed")
+        except Exception as e:
+            print(f"   ⚠️ Error processing Sentinel-1 {key.upper()}: {e}")
 
     def _period_result(cfg, p):
         return {
@@ -144,19 +172,58 @@ def calculate_bitemporal_lst(config_t1, config_t2,
         'lst_30m_t2': p2['lst_celsius'],
         'indices_landsat': {'t1': p1['indices_landsat'], 't2': p2['indices_landsat']},
         'indices_sentinel2': {'t1': p1['indices_sentinel2'], 't2': p2['indices_sentinel2']},
+        # Thermal reference of the SUHI z-score (urban perimeter, or the ROI itself)
+        'reference_geometry': config_t1.get('reference_geometry') or config_t1['geometry'],
+        # Dates used (image dates, or the middle of the period for median composites)
+        'dates': dates,
     }
 
     print("\n✅ Bitemporal processing complete!")
     return results
 
 
-def calculate_thermal_change_statistics(results, geometry):
+def print_class_thresholds(stats_change):
+    """
+    Prints, for T1 and T2, the reference μ and σ of the LST and the °C range of
+    each SUHI intensity class (Deng et al., 2023), plus the share of the
+    reference area with valid LST (clouds and water removed).
+
+    The same z class means different °C on different dates when σ changes;
+    Martin et al. (2015) report SUHI thresholds in °C above the mean.
+    """
+    u = stats_change['UHI_30m']
+    ref_txt = ('analysis ROI' if u.get('reference') == 'roi'
+               else 'thermal reference area (urban perimeter)')
+    print(f"\n   Class thresholds in °C — reference: {ref_txt}")
+    print(f"      {'':<5}{'μ':>7}{'σ':>7}  {'LTZ <':>8}{'SLTZ':>15}{'MTZ':>15}{'SHTZ':>15}{'HTZ >':>8}  valid ref.")
+    for lbl in ('t1', 't2'):
+        mu, sd = u[lbl]['lst_mean'], u[lbl]['lst_std']
+        th = u['thresholds_c'][lbl]
+        vs = u.get('valid_reference_share', {}).get(lbl, float('nan'))
+        vs_txt = '   —' if vs != vs else f"{vs:>6.0%}"
+        print(f"      {lbl.upper():<5}{mu:>7.2f}{sd:>7.2f}  {th['LTZ_below']:>8.1f}"
+              f"{th['SLTZ'][0]:>8.1f}–{th['SLTZ'][1]:<6.1f}{th['MTZ'][0]:>8.1f}–{th['MTZ'][1]:<6.1f}"
+              f"{th['SHTZ'][0]:>8.1f}–{th['SHTZ'][1]:<6.1f}{th['HTZ_above']:>8.1f}  {vs_txt}")
+    s1, s2 = u['t1']['lst_std'], u['t2']['lst_std']
+    if abs(s2 - s1) > 0.25 * min(s1, s2):
+        print("      ⚠️  σ changed by more than 25% between dates: the same class covers a "
+              "different °C range in T1 and T2.")
+
+
+def calculate_thermal_change_statistics(results, geometry, reference_geometry=None):
     """
     Calculate thermal change statistics between two periods.
 
+    The SUHI z-score is intra-urban (Martin et al., 2015): LST mean and std come
+    from `reference_geometry` (e.g. the urban perimeter); classes, areas and
+    statistics are then reported for `geometry` (the analysis ROI).
+
     Args:
         results (dict): Bitemporal processing results
-        geometry: Region of interest geometry
+        geometry: Region of interest (analysis area)
+        reference_geometry: Thermal reference area for the z-score. None = the one
+            stored by calculate_bitemporal_lst (results['reference_geometry']),
+            or the ROI itself when there is none.
 
     Returns:
         dict: {'LST_30m': {...}, 'UHI_30m': {..., 'images', 'intensity_classification'}}
@@ -233,8 +300,16 @@ def calculate_thermal_change_statistics(results, geometry):
     print("\n📊 UHI 30m (Landsat)")
     print("-" * 80)
 
+    if reference_geometry is None:
+        reference_geometry = results.get('reference_geometry')
+    ref = geometry if reference_geometry is None else reference_geometry
+    _ref_is_roi = reference_geometry is None or reference_geometry is geometry
+    print("   Reference for mean/std: " + ("analysis ROI (z-score mean = 0 inside it by construction)"
+                                           if _ref_is_roi
+                                           else "thermal reference area (e.g. urban perimeter)"))
+
     # T1 - 30m
-    uhi_30m_t1, lst_stats_t1 = calculate_uhi(results['lst_30m_t1'], geometry=geometry, scale=30)
+    uhi_30m_t1, lst_stats_t1 = calculate_uhi(results['lst_30m_t1'], geometry=ref, scale=30)
     uhi_stats_30m_t1_dict = calculate_uhi_statistics(uhi_30m_t1, geometry=geometry, scale=30)
 
     # Classify UHI intensity T1
@@ -244,7 +319,7 @@ def calculate_thermal_change_statistics(results, geometry):
     lst_mean_t1, lst_std_t1 = ee.List([lst_stats_t1['lst_mean'], lst_stats_t1['lst_std']]).getInfo()
 
     # T2 - 30m
-    uhi_30m_t2, lst_stats_t2 = calculate_uhi(results['lst_30m_t2'], geometry=geometry, scale=30)
+    uhi_30m_t2, lst_stats_t2 = calculate_uhi(results['lst_30m_t2'], geometry=ref, scale=30)
     uhi_stats_30m_t2_dict = calculate_uhi_statistics(uhi_30m_t2, geometry=geometry, scale=30)
 
     # Classify UHI intensity T2
@@ -266,7 +341,7 @@ def calculate_thermal_change_statistics(results, geometry):
 
     # Print T1 results
     print(f"\n   T1:")
-    print(f"      LST Base     : Mean = {lst_mean_t1:.2f}°C | StdDev = {lst_std_t1:.2f}°C")
+    print(f"      LST reference: Mean = {lst_mean_t1:.2f}°C | StdDev = {lst_std_t1:.2f}°C")
     print(f"      UHI (z-score): Mean = {uhi_stats_30m_t1_dict.get('UHI_mean', 0):.3f} | "
           f"StdDev = {uhi_stats_30m_t1_dict.get('UHI_stdDev', 0):.3f}")
     print(f"      UHI Range: Min = {uhi_min_t1:.2f} ({temp_min_t1:.1f}°C) | "
@@ -274,11 +349,38 @@ def calculate_thermal_change_statistics(results, geometry):
 
     # Print T2 results
     print(f"\n   T2:")
-    print(f"      LST Base     : Mean = {lst_mean_t2:.2f}°C | StdDev = {lst_std_t2:.2f}°C")
+    print(f"      LST reference: Mean = {lst_mean_t2:.2f}°C | StdDev = {lst_std_t2:.2f}°C")
     print(f"      UHI (z-score): Mean = {uhi_stats_30m_t2_dict.get('UHI_mean', 0):.3f} | "
           f"StdDev = {uhi_stats_30m_t2_dict.get('UHI_stdDev', 0):.3f}")
     print(f"      UHI Range: Min = {uhi_min_t2:.2f} ({temp_min_t2:.1f}°C) | "
           f"Max = {uhi_max_t2:.2f} ({temp_max_t2:.1f}°C)")
+
+    # ── Class thresholds in °C and valid share of the reference (per date) ──
+    # The same z class means different °C on different dates when σ changes;
+    # Martin et al. (2015) report SUHI thresholds in °C above the mean.
+    def _valid_share(lst_img):
+        cnt = lst_img.reduceRegion(reducer=ee.Reducer.count(), geometry=ref, scale=30,
+                                   maxPixels=1e10, tileScale=4).values().get(0)
+        return ee.Number(cnt).multiply(900).divide(ee.Geometry(ref).area(1))
+
+    try:
+        valid_t1, valid_t2 = ee.List([_valid_share(results['lst_30m_t1']),
+                                      _valid_share(results['lst_30m_t2'])]).getInfo()
+    except Exception:
+        valid_t1 = valid_t2 = float('nan')
+
+    def _thresholds(mu, sd):
+        return {'LTZ_below': mu - sd, 'SLTZ': (mu - sd, mu - 0.5 * sd),
+                'MTZ': (mu - 0.5 * sd, mu + 0.5 * sd), 'SHTZ': (mu + 0.5 * sd, mu + sd),
+                'HTZ_above': mu + sd}
+
+    thr_t1, thr_t2 = _thresholds(lst_mean_t1, lst_std_t1), _thresholds(lst_mean_t2, lst_std_t2)
+    print_class_thresholds({'UHI_30m': {
+        't1': {'lst_mean': lst_mean_t1, 'lst_std': lst_std_t1},
+        't2': {'lst_mean': lst_mean_t2, 'lst_std': lst_std_t2},
+        'thresholds_c': {'t1': thr_t1, 't2': thr_t2},
+        'valid_reference_share': {'t1': valid_t1, 't2': valid_t2},
+        'reference': 'roi' if _ref_is_roi else 'reference_geometry'}})
 
     # Change analysis
     delta_uhi_max = uhi_max_t2 - uhi_max_t1
@@ -342,8 +444,11 @@ def calculate_thermal_change_statistics(results, geometry):
             't1': uhi_intensity_30m_t1,
             't2': uhi_intensity_30m_t2
         },
-        'area_classification_t1': area_categories_t1,  # NOVO
-        'area_classification_t2': area_categories_t2
+        'area_classification_t1': area_categories_t1,
+        'area_classification_t2': area_categories_t2,
+        'reference': 'roi' if _ref_is_roi else 'reference_geometry',
+        'thresholds_c': {'t1': thr_t1, 't2': thr_t2},
+        'valid_reference_share': {'t1': valid_t1, 't2': valid_t2},
     }
 
     return stats
@@ -351,7 +456,8 @@ def calculate_thermal_change_statistics(results, geometry):
 
 def visualize_bitemporal_results(results, geometry, zoom=15,
                                  lst_min=20, lst_max=60,
-                                 uhi_min=-4, uhi_max=4):
+                                 uhi_min=-4, uhi_max=4, reference_geometry=None,
+                                 stats_change=None):
     """
     Create a comparative visualization of bitemporal results.
 
@@ -363,6 +469,9 @@ def visualize_bitemporal_results(results, geometry, zoom=15,
         lst_max (float): Maximum LST value for visualization
         uhi_min (float): Minimum UHI value for visualization
         uhi_max (float): Maximum UHI value for visualization
+        reference_geometry: Thermal reference area of the z-score (None = geometry)
+        stats_change (dict, optional): Output of calculate_thermal_change_statistics;
+            when given, its UHI images are reused (same reference, no recomputation)
 
     Returns:
         geemap.Map: Interactive map with layers
@@ -416,9 +525,14 @@ def visualize_bitemporal_results(results, geometry, zoom=15,
     # UHI color palette (divergent)
     uhi_palette = ['2166ac', '67a9cf', 'd1e5f0', 'f7f7f7', 'fddbc7', 'ef8a62', 'b2182b']
 
-    # Calculate UHI for LST 30m
-    uhi_30m_t1, _ = calculate_uhi(results['lst_30m_t1'], geometry, scale=30)
-    uhi_30m_t2, _ = calculate_uhi(results['lst_30m_t2'], geometry, scale=30)
+    # UHI 30m: reuse stats_change (same reference) or recompute with the reference
+    if stats_change is not None and 'UHI_30m' in stats_change:
+        uhi_30m_t1 = stats_change['UHI_30m']['images']['t1']
+        uhi_30m_t2 = stats_change['UHI_30m']['images']['t2']
+    else:
+        _ref = reference_geometry or results.get('reference_geometry') or geometry
+        uhi_30m_t1, _ = calculate_uhi(results['lst_30m_t1'], _ref, scale=30)
+        uhi_30m_t2, _ = calculate_uhi(results['lst_30m_t2'], _ref, scale=30)
 
     # Add UHI 30m layers
     Map.addLayer(

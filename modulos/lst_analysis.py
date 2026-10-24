@@ -2,32 +2,51 @@
 # lst_analysis.py — Land Surface Temperature Analysis (LST, UHI)
 # ==============================================================================
 # Normalized SUHI (z-score), intensity classification (Deng et al., 2023),
-# UHI statistics and area per intensity class.
+# UHI statistics, area per intensity class and antecedent rainfall (CHIRPS).
 # ==============================================================================
 
 import ee
 
 
-def calculate_uhi(lst_image, geometry, scale=30):
+def calculate_uhi(lst_image, geometry, scale=30, exclude_water=True):
     """
-    Calculates the normalized Urban Heat Island (UHI) index.
+    Calculates the normalized SUHI index (z-score of LST).
+
+        SUHI = (LST − μ) / σ
+
+    μ and σ are taken over `geometry`, the thermal reference area. For an
+    intra-urban SUHI (Martin et al., 2015) pass the urban perimeter here, not
+    the small analysis ROI: a z-score referenced to the ROI itself has mean 0
+    on every date, so a relative increase in one part forces a decrease in another.
+
+    Args:
+        lst_image (ee.Image): LST in °C (single band).
+        geometry (ee.Geometry): Thermal reference area for μ and σ.
+        scale (int): Scale in meters for the statistics.
+        exclude_water (bool): Leave permanent water bodies (JRC Global Surface
+            Water, occurrence ≥ 50 %) out of μ and σ, as Martin et al. (2015)
+            exclude water from the urban reference. The returned image is not masked.
+
+    Returns:
+        tuple: (ee.Image 'UHI', {'lst_mean': ee.Number, 'lst_std': ee.Number})
     """
-    # Calculate mean and standard deviation in a single server call
-    mean_std = lst_image.reduceRegion(
+    lst_for_stats = lst_image
+    if exclude_water:
+        water = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence').gte(50)
+        lst_for_stats = lst_image.updateMask(water.unmask(0).Not())
+
+    # Mean and standard deviation in a single server call
+    mean_std = lst_for_stats.reduceRegion(
         reducer=ee.Reducer.mean().combine(ee.Reducer.stdDev(), sharedInputs=True),
         geometry=geometry,
         scale=scale,
-        maxPixels=1e9
+        maxPixels=1e10,
+        tileScale=4
     )
     band_name = lst_image.bandNames().get(0)
-    lst_mean = mean_std.get(ee.String(band_name).cat('_mean'))
-    lst_std = mean_std.get(ee.String(band_name).cat('_stdDev'))
+    lst_mean = ee.Number(mean_std.get(ee.String(band_name).cat('_mean')))
+    lst_std = ee.Number(mean_std.get(ee.String(band_name).cat('_stdDev'))).max(1e-9)
 
-    # Convert to ee.Number and add protection
-    lst_mean = ee.Number(lst_mean)
-    lst_std = ee.Number(lst_std).max(1e-9)
-
-    # Calculate normalized UHI
     uhi = lst_image.subtract(lst_mean).divide(lst_std).rename('UHI')
 
     stats = {
@@ -178,3 +197,63 @@ def classify_uhi_areas(uhi_image, geometry, scale=30):
         'HTZ': area_htz,           # High temperature
         'total': area_ltz + area_sltz + area_mtz + area_shtz + area_htz,
     }
+
+
+def antecedent_rainfall(geometry, date_str, days=30, clim_years=(1991, 2020)):
+    """
+    Rainfall accumulated in the `days` before an acquisition date (CHIRPS daily,
+    ~5.5 km), and the same window's climatological mean for comparison.
+
+    Silva and Torres (2021) check the rainfall before each image because soil
+    moisture changes the surface temperature, mostly on vegetated and bare soil.
+
+    Args:
+        geometry (ee.Geometry): Area averaged (ROI or urban perimeter).
+        date_str (str): 'YYYY-MM-DD' acquisition date.
+        days (int): Window length before the date.
+        clim_years (tuple): First and last year of the climatology.
+
+    Returns:
+        dict: {'date', 'days', 'rain_mm', 'clim_mean_mm', 'anomaly_mm', 'anomaly_pct'}
+    """
+    chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY').select('precipitation')
+    end = ee.Date(date_str)
+
+    def _window_total(end_date):
+        end_date = ee.Date(end_date)
+        img = chirps.filterDate(end_date.advance(-days, 'day'), end_date).sum()
+        return ee.Number(img.reduceRegion(ee.Reducer.mean(), geometry, 5566,
+                                          maxPixels=1e9, bestEffort=True).get('precipitation'))
+
+    md = str(date_str)[5:10]
+    month_day = ee.String('02-28' if md == '02-29' else md)  # leap day → Feb 28
+    years = ee.List.sequence(clim_years[0], clim_years[1])
+    clim = years.map(lambda y: _window_total(
+        ee.Date.parse('YYYY-MM-dd', ee.Number(y).format('%d').cat('-').cat(month_day))))
+
+    rain, clim_mean = ee.List([_window_total(end),
+                               ee.List(clim).reduce(ee.Reducer.mean())]).getInfo()
+    rain = float(rain or 0.0)
+    clim_mean = float(clim_mean or 0.0)
+    return {
+        'date': date_str,
+        'days': days,
+        'rain_mm': rain,
+        'clim_mean_mm': clim_mean,
+        'anomaly_mm': rain - clim_mean,
+        'anomaly_pct': (100.0 * (rain - clim_mean) / clim_mean) if clim_mean > 0 else float('nan'),
+    }
+
+
+def print_antecedent_rainfall(rows):
+    """Prints the output of antecedent_rainfall for T1 and T2 ({'T1': dict, 'T2': dict})."""
+    print('=' * 78)
+    print('ANTECEDENT RAINFALL (CHIRPS daily) — context for comparing the two dates')
+    print('=' * 78)
+    print(f"{'':<5}{'date':<12}{'window':>8}{'rain (mm)':>12}{'climatology (mm)':>19}{'anomaly':>14}")
+    for lbl, r in rows.items():
+        anom = '—' if r['anomaly_pct'] != r['anomaly_pct'] else f"{r['anomaly_pct']:+.0f}%"
+        print(f"{lbl:<5}{r['date']:<12}{r['days']:>6} d{r['rain_mm']:>12.1f}{r['clim_mean_mm']:>19.1f}"
+              f"{r['anomaly_mm']:>+9.1f} ({anom})")
+    print('Climatology: mean of the same calendar window, 1991–2020.')
+    print('Very different antecedent rain between T1 and T2 means part of ΔLST reflects soil moisture.')

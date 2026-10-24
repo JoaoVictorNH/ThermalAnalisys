@@ -23,6 +23,7 @@ def create_tenst_config(
     sentinel2_id=None,
     export_folder=None,
     export_crs='EPSG:32724',
+    reference_geometry=None,
 ):
     """
     Configures processing parameters for Landsat.
@@ -37,6 +38,8 @@ def create_tenst_config(
         sentinel2_id (str, optional): Specific Sentinel-2 image ID.
         export_folder (str): Google Drive export folder.
         export_crs (str): Coordinate system for export.
+        reference_geometry (optional): Thermal reference area (e.g. Sobral's urban
+            perimeter) used for the LST mean/std of the SUHI z-score. None = geometry.
 
     Returns:
         dict: Configuration dictionary.
@@ -51,6 +54,7 @@ def create_tenst_config(
         "sentinel2_id": sentinel2_id,
         "export_folder": export_folder,
         "export_crs": export_crs,
+        "reference_geometry": reference_geometry if reference_geometry is not None else geometry,
     }
 
     print("=" * 80)
@@ -84,6 +88,7 @@ def create_bitemporal_config(
     export_folder=None,
     site_name='study_area',
     export_crs='EPSG:32724',
+    reference_geometry=None,
 ):
     """
     Configuration for bitemporal thermal analysis.
@@ -103,6 +108,7 @@ def create_bitemporal_config(
         export_folder (str): Google Drive export folder.
         site_name (str): Study site name.
         export_crs (str): Coordinate system for export.
+        reference_geometry (optional): Thermal reference area (see create_tenst_config).
 
     Returns:
         dict: Configuration dictionary.
@@ -122,6 +128,7 @@ def create_bitemporal_config(
         "export_folder": export_folder,
         "site_name": site_name,
         "export_crs": export_crs,
+        "reference_geometry": reference_geometry if reference_geometry is not None else geometry,
     }
 
     print("=" * 80)
@@ -161,6 +168,7 @@ def create_configs_from_ids(
     site_name='study_area',
     export_crs='EPSG:32724',
     export_folder=None,
+    reference_geometry=None,
 ):
     """
     Creates configuration dictionaries for bitemporal analysis and individual
@@ -181,6 +189,8 @@ def create_configs_from_ids(
         site_name (str): Study site name.
         export_crs (str): Coordinate system for export.
         export_folder (str): Google Drive export folder.
+        reference_geometry (optional): Thermal reference area for the SUHI z-score
+            (e.g. Sobral's urban perimeter). None = the ROI itself.
 
     Returns:
         tuple: (config_bitemporal, config_t1, config_t2)
@@ -200,6 +210,7 @@ def create_configs_from_ids(
         site_name=site_name,
         export_crs=export_crs,
         export_folder=export_folder,
+        reference_geometry=reference_geometry,
     )
 
     config_t1 = create_tenst_config(
@@ -212,6 +223,7 @@ def create_configs_from_ids(
         sentinel2_id=sentinel2_t1_id,
         export_crs=export_crs,
         export_folder=export_folder,
+        reference_geometry=reference_geometry,
     )
 
     config_t2 = create_tenst_config(
@@ -224,6 +236,7 @@ def create_configs_from_ids(
         sentinel2_id=sentinel2_t2_id,
         export_crs=export_crs,
         export_folder=export_folder,
+        reference_geometry=reference_geometry,
     )
 
     return config_bitemporal, config_t1, config_t2
@@ -587,36 +600,51 @@ def get_selected_sentinel2_image(sentinel2_id, roi, s2_collection=None):
 
 def generate_sentinel1_composite_from_s2_date(roi, s2_image_id, polarizations=["VV", "VH"]):
     """
-    Generates a Sentinel-1 composite based on the Sentinel-2 image date.
+    Generates a Sentinel-1 composite centred on the date of a Sentinel-2 image ID.
 
-    Searches for Sentinel-1 images within a ±30-day window around the Sentinel-2
-    image date, selects the orbit with the most images, and produces a normalized
-    mean composite.
+    Thin wrapper around generate_sentinel1_composite (±30 days, dominant orbit,
+    normalized mean composite).
 
     Args:
         roi: Region of interest geometry.
-        s2_image_id: Reference Sentinel-2 image ID.
+        s2_image_id: Reference Sentinel-2 image ID (starts with YYYYMMDD).
         polarizations: List of polarizations (default: ['VV', 'VH']).
 
     Returns:
         ee.Image: Processed Sentinel-1 composite, or None on error.
     """
-    product_id = s2_image_id
-
-    if product_id and len(product_id) >= 8:
-        date_part = product_id.split('_')[0]
-        if len(date_part) >= 8:
-            ano = date_part[:4]
-            mes = date_part[4:6]
-            dia = date_part[6:8]
-            date_str = f'{ano}-{mes}-{dia}'
-            s2_date = ee.Date(date_str)
-        else:
-            print(f"Error: Could not extract date from PRODUCT_ID part: {date_part}")
-            return None
-    else:
-        print(f"Error: Could not extract date from PRODUCT_ID: {product_id}")
+    if not s2_image_id or len(str(s2_image_id).split('_')[0]) < 8:
+        print(f"Error: Could not extract date from PRODUCT_ID: {s2_image_id}")
         return None
+    d = str(s2_image_id).split('_')[0]
+    return generate_sentinel1_composite(roi, f'{d[:4]}-{d[4:6]}-{d[6:8]}', polarizations)
+
+
+def period_center_date(start_date, end_date):
+    """Middle date (YYYY-MM-DD) of a period given as two YYYY-MM-DD strings."""
+    from datetime import date
+    a, b = date.fromisoformat(str(start_date)[:10]), date.fromisoformat(str(end_date)[:10])
+    return (a + (b - a) / 2).isoformat()
+
+
+def generate_sentinel1_composite(roi, center_date, polarizations=["VV", "VH"]):
+    """
+    Generates a Sentinel-1 composite in a ±30-day window around `center_date`.
+
+    Selects the orbit direction with the most images, averages each relative
+    orbit, mosaics them and scales VV/VH from [-25, 0] dB to [0, 1] (input range
+    of the change detection model).
+
+    Args:
+        roi: Region of interest geometry.
+        center_date (str): 'YYYY-MM-DD' — the Sentinel-2 date, or the middle of
+            the period when the Sentinel-2 median composite is used.
+        polarizations: List of polarizations (default: ['VV', 'VH']).
+
+    Returns:
+        ee.Image: Processed Sentinel-1 composite, or None on error.
+    """
+    s2_date = ee.Date(center_date)
 
     start_date = s2_date.advance(-30, 'day')
     end_date = s2_date.advance(30, 'day')
