@@ -117,6 +117,9 @@ def align_reference(reference_path, like_transform, like_crs, like_shape, change
                   dst_transform=like_transform, dst_crs=like_crs,
                   resampling=Resampling.nearest, src_nodata=np.nan, dst_nodata=np.nan)
     chg = (dst > 0) if change_values is None else np.isin(dst, change_values)
+    if change_values is not None and not chg.any() and np.nanmax(dst) > 0:
+        print(f'   ℹ️  No reference pixel equals {change_values}; using values > 0 as change.')
+        chg = dst > 0
     out = np.where(np.isnan(dst), np.nan, chg.astype(np.float32))
     return out
 
