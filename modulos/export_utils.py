@@ -11,7 +11,116 @@ import ee
 from modulos.image_processing import generate_sentinel1_composite_from_s2_date
 
 
-def export_bitemporal_results(
+EXPORT_EXTENTS = {
+    'roi': 'Analysis area (ROI)',
+    'perimeter': 'Thermal reference (urban perimeter)',
+    'both': 'Both',
+}
+
+# Products that only exist inside the ROI: Sentinel-2 / Sentinel-1 are loaded
+# for the ROI only (input of the change-detection model), so they cannot be
+# exported for the urban perimeter.
+_ROI_ONLY_FLAGS = ('export_sentinel2', 'export_sentinel1', 'export_sentinel2_indices',
+                   'export_delta_sentinel2_indices', 'export_cdi_sentinel2')
+
+
+def _clip_tree(obj, geometry):
+    """Copy of nested dicts with every ee.Image clipped to `geometry` (other values kept)."""
+    if isinstance(obj, ee.Image):
+        return obj.clip(geometry)
+    if isinstance(obj, dict):
+        return {k: _clip_tree(v, geometry) for k, v in obj.items()}
+    return obj
+
+
+def distinct_reference_geometry(results, roi):
+    """
+    The thermal reference area (urban perimeter) stored in the results, or None
+    when the z-score was referenced to the ROI itself (no separate perimeter).
+    """
+    ref = results.get('reference_geometry')
+    roi_cfg = results.get('t1', {}).get('config', {}).get('geometry')
+    if ref is None or ref is roi or ref is roi_cfg:
+        return None
+    return ref
+
+
+def _normalise_extent(export_extent):
+    key = str(export_extent).strip().lower()
+    for k, label in EXPORT_EXTENTS.items():
+        if key in (k, label.lower()):
+            return k
+    if 'perimeter' in key or 'reference' in key:
+        return 'perimeter'
+    if 'both' in key or 'ambos' in key:
+        return 'both'
+    return 'roi'
+
+
+def export_bitemporal_results(results, config, roi, stats_change=None, s1_t1=None, s1_t2=None,
+                              export_extent='roi', reference_geometry=None, **flags):
+    """
+    Exports the bitemporal products for the analysis area, the urban perimeter
+    (thermal reference of the SUHI z-score), or both.
+
+    Landsat products (LST, SUHI z-score, intensity classes, Landsat bands and
+    indices, their T2 − T1 deltas and the Landsat CDI) are computed over
+    ROI ∪ perimeter (calculate_bitemporal_lst), so they can be exported for
+    either extent. Sentinel-2 / Sentinel-1 products exist only inside the ROI
+    and are skipped for the perimeter.
+
+    Every raster is clipped to its extent polygon (pixels outside = no data).
+    File names: ROI → `<product>_<site>_...` (as before);
+                perimeter → `<product>_<site>_perimeter_...`.
+
+    Args:
+        results, config, roi, stats_change, s1_t1, s1_t2: as in `_export_products`.
+        export_extent (str): 'roi', 'perimeter' or 'both' (or the labels in
+            EXPORT_EXTENTS, as used by the notebook form).
+        reference_geometry: perimeter geometry. None = the one stored in
+            results['reference_geometry'] (cell 2.3).
+        **flags: product switches of `_export_products` (export_lst_30m=True, ...).
+
+    Returns:
+        list: started ee.batch tasks (all extents).
+    """
+    extent = _normalise_extent(export_extent)
+    ref = reference_geometry if reference_geometry is not None else distinct_reference_geometry(results, roi)
+
+    jobs = []
+    if extent in ('roi', 'both'):
+        jobs.append(('roi', roi, config['site_name']))
+    if extent in ('perimeter', 'both'):
+        if ref is None:
+            print("⚠️  No separate urban perimeter: the SUHI reference is the ROI itself "
+                  "(cell 2.3 = 'Same as analysis area'). Perimeter export skipped.")
+        else:
+            jobs.append(('perimeter', ref, f"{config['site_name']}_perimeter"))
+
+    tasks = []
+    for key, geom, site in jobs:
+        print("\n" + "#" * 80)
+        print(f"# EXTENT: {EXPORT_EXTENTS[key]}  →  file names with '{site}'")
+        print("#" * 80)
+        fl = dict(flags)
+        if key == 'perimeter':
+            skipped = [f for f in _ROI_ONLY_FLAGS if fl.get(f, f in ('export_sentinel2', 'export_sentinel1'))]
+            for f in _ROI_ONLY_FLAGS:
+                fl[f] = False
+            if skipped:
+                print("ℹ️  Sentinel-1/2 products exist only inside the ROI — not exported for the "
+                      "perimeter: " + ', '.join(s.replace('export_', '') for s in skipped))
+        cfg = {**config, 'site_name': site}
+        tasks += _export_products(
+            _clip_tree(results, geom), cfg, geom,
+            stats_change=_clip_tree(stats_change, geom) if stats_change else stats_change,
+            s1_t1=s1_t1.clip(geom) if s1_t1 is not None else None,
+            s1_t2=s1_t2.clip(geom) if s1_t2 is not None else None,
+            **fl)
+    return tasks
+
+
+def _export_products(
     results,
     config,
     roi,

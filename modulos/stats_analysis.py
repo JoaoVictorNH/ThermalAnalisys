@@ -708,6 +708,8 @@ def analyze_new_buildings_grid(
         'controls': ctrl_names,
         'change_indices': chg_names,
         'cells': cellv,
+        # cell centroids in `crs` (metres), for exporting / re-checking the grid
+        'cell_xy': {'x': cx, 'y': cy, 'crs': crs},
         'masks': {'built': built, 'changed': changed, 'stable': stable},
         'groups': groups,
         'contrasts': contrasts,
