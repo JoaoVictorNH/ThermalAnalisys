@@ -100,11 +100,12 @@ def _clean(arr):
     return arr
 
 
-def align_reference(reference_path, like_transform, like_crs, like_shape, change_values=(1,)):
+def align_reference(reference_path, like_transform, like_crs, like_shape, change_values=None):
     """
     Reads a reference (ground-truth) raster and resamples it (nearest neighbour)
-    onto the grid of the prediction. Returns float array: 1 change, 0 no change,
-    NaN outside the reference.
+    onto the grid of the prediction, as in the validation notebook. Returns a float
+    array: 1 change, 0 no change, NaN outside the reference.
+    change_values=None → any value > 0 is change (e.g. masks saved as 0/255).
     """
     with rasterio.open(reference_path) as ds:
         src = ds.read(1).astype(np.float32)
@@ -115,7 +116,8 @@ def align_reference(reference_path, like_transform, like_crs, like_shape, change
         reproject(source=src, destination=dst, src_transform=ds.transform, src_crs=ds.crs,
                   dst_transform=like_transform, dst_crs=like_crs,
                   resampling=Resampling.nearest, src_nodata=np.nan, dst_nodata=np.nan)
-    out = np.where(np.isnan(dst), np.nan, np.isin(dst, change_values).astype(np.float32))
+    chg = (dst > 0) if change_values is None else np.isin(dst, change_values)
+    out = np.where(np.isnan(dst), np.nan, chg.astype(np.float32))
     return out
 
 
@@ -127,7 +129,7 @@ def benchmark_change_detection(
     reference_path,
     unet_threshold=45,
     indices=('NDBI', 'NBAI', 'DBSI', 'BSI', 'NDVI'),
-    change_values=(1,),
+    change_values=None,
     block_px=32,
     n_boot=1000,
     seed=42,
@@ -150,7 +152,7 @@ def benchmark_change_detection(
         folder_imgs (str): folder with sentinel2_{roi}_t1/t2.tif and pred_{roi}.tif (ends with '/').
         roi_name (str): name used in the file names.
         reference_path (str): GeoTIFF of the reference map (any grid; resampled by nearest
-            neighbour to the prediction grid). Pixels equal to `change_values` = change.
+            neighbour to the prediction grid). change_values=None → values > 0 are change.
         unet_threshold (float): U-Net probability threshold (0–100) used in cell 6.4.
         indices (tuple): spectral indices to test.
         block_px (int): side of the bootstrap blocks in pixels (32 px = 320 m at 10 m).
@@ -164,6 +166,9 @@ def benchmark_change_detection(
     prob = _clean(prob)
     s2_1 = _clean(_read(f'{folder_imgs}sentinel2_{roi_name}_t1.tif')[0]).transpose(1, 2, 0)
     s2_2 = _clean(_read(f'{folder_imgs}sentinel2_{roi_name}_t2.tif')[0]).transpose(1, 2, 0)
+    for a in (s2_1, s2_2):          # digital numbers (0–10000) → reflectance
+        if np.nanmax(a) > 2:
+            a /= 10000.0
     if s2_1.shape[:2] != prob.shape or s2_2.shape[:2] != prob.shape:
         raise ValueError('Sentinel-2 and prediction rasters have different shapes; '
                          'run the export (6.0) and the inference (6.2) for the same ROI.')
