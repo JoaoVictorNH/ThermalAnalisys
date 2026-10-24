@@ -6,10 +6,9 @@
 # ==============================================================================
 
 import ee
-import numpy as np
 
 # --- Module imports ---
-from modulos.image_processing import perform_bandpass_adjustment, process_landsat_median, process_sentinel2_median
+from modulos.image_processing import perform_bandpass_adjustment
 
 
 

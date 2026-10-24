@@ -6,13 +6,9 @@
 # ==============================================================================
 
 import ee
-import numpy as np
 
 # --- Module imports ---
 from modulos.spectral_analysis import (
-    calculate_spectral_indices_landsat,
-    calculate_spectral_indices_sentinel2,
-    calculate_spectral_indices_dynamic,
     resolve_predictors_from_image
 )
 

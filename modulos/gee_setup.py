@@ -3,7 +3,6 @@
 # ==============================================================================
 
 import ee
-import math
 
 
 def authenticate_gee(project_id="ee-joaovictornh01"):
@@ -21,13 +20,6 @@ def authenticate_gee(project_id="ee-joaovictornh01"):
         ee.Authenticate()
         ee.Initialize(project=project_id)
         print("✓ Earth Engine authenticated successfully")
-
-
-def mount_drive():
-    """Mounts Google Drive in Colab."""
-    from google.colab import drive
-    drive.mount('/content/drive')
-    print("✓ Google Drive mounted")
 
 
 def get_utm_crs(lon, lat):

@@ -2,16 +2,12 @@
 # image_processing.py — Satellite Image Processing
 # ==============================================================================
 # Analysis configuration (bitemporal), collection processing for
-# Landsat/Sentinel-2/Sentinel-1, cloud masking, image selection,
-# bandpass adjustment, and preview visualization.
+# Landsat/Sentinel-2/Sentinel-1, cloud masking, image search and selection.
 # ==============================================================================
 
 import re
 import ee
-import geemap
-import numpy as np
 
-from modulos.gee_setup import get_utm_crs
 
 
 # ==========================================================================
@@ -400,30 +396,6 @@ def get_landsat_collection(config):
                  .filterMetadata('CLOUD_COVER', 'less_than', config['cloud_cover'])
                  .map(maskL8clouds)
                  .map(apply_landsat_scale_factors))
-
-    return collection
-
-
-def get_sentinel1_collection(roi, start_date, end_date, polarizations=["VV", "VH"]):
-    """
-    Retrieves Sentinel-1 SAR image collection (GRD, IW mode).
-
-    Args:
-        roi: Region of interest geometry.
-        start_date: Start date (YYYY-MM-DD).
-        end_date: End date (YYYY-MM-DD).
-        polarizations: List of polarizations (default: ['VV', 'VH']).
-
-    Returns:
-        ee.ImageCollection: Filtered Sentinel-1 collection.
-    """
-    collection = (ee.ImageCollection('COPERNICUS/S1_GRD')
-                  .filterBounds(roi)
-                  .filterDate(start_date, end_date)
-                  .filterMetadata('instrumentMode', 'equals', 'IW')
-                  .select(polarizations)
-                  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
-                  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH')))
 
     return collection
 
@@ -880,151 +852,6 @@ def search_available_images(config, max_display=20):
         'n_landsat': n_landsat,
         'n_sentinel2': n_s2
     }
-
-
-def create_preview_map(roi,
-                       landsat_id=None,
-                       sentinel2_id=None,
-                       s2_collection='COPERNICUS/S2_HARMONIZED/',
-                       landsat_type='L8',
-                       zoom=15,
-                       lst_min=20,
-                       lst_max=60):
-    """
-    Creates an interactive map to visualize specific images before selecting.
-
-    Args:
-        roi: Region of interest.
-        landsat_id (str, optional): Landsat image ID.
-        sentinel2_id (str, optional): Sentinel-2 image ID.
-        s2_collection (str): Sentinel-2 collection to use.
-        landsat_type (str): 'L8' or 'L9'.
-        zoom (int): Zoom level.
-        lst_min (float): Minimum temperature for visualization.
-        lst_max (float): Maximum temperature for visualization.
-
-    Returns:
-        geemap.Map: Interactive map with added layers.
-    """
-    print("\n" + "=" * 80)
-    print("GENERATING VISUALIZATION MAP")
-    print("=" * 80)
-
-    Map = geemap.Map()
-    Map.centerObject(roi, zoom=zoom)
-
-    Map.addLayer(roi, {'color': 'yellow'}, 'ROI', True, 0.5)
-
-    lst_palette = [
-        '040274', '0502a3', '0502ce', '0602ff', '307ef3',
-        '30c8e2', '32d3ef', 'fff705', 'ffd611', 'ffb613',
-        'ff8b13', 'ff6e08', 'ff500d', 'ff0000', 'de0101',
-        'c21301', 'a71001', '911003'
-    ]
-
-    # Add Landsat if provided
-    if landsat_id:
-        print(f"\n📷 Loading Landsat: {landsat_id}")
-        try:
-            landsat_img = get_selected_landsat_image(landsat_id, roi, landsat_type)
-
-            # RGB
-            Map.addLayer(
-                landsat_img,
-                {'bands': ['SR_B4', 'SR_B3', 'SR_B2'], 'min': 0, 'max': 0.3, 'gamma': 1.4},
-                f'Landsat RGB',
-                True
-            )
-
-            # LST directly from ST_B10 band
-            lst = landsat_img.select('ST_B10')
-
-            Map.addLayer(
-                lst,
-                {'min': lst_min, 'max': lst_max, 'palette': lst_palette},
-                'Landsat LST',
-                False
-            )
-
-            print(f"   ✓ LST computed")
-
-        except Exception as e:
-            print(f"   ⚠️  Error loading Landsat: {str(e)}")
-
-    # Add Sentinel-2 if provided
-    if sentinel2_id:
-        print(f"\n📷 Loading Sentinel-2: {sentinel2_id}")
-        try:
-            s2_img = get_selected_sentinel2_image(sentinel2_id, roi, s2_collection)
-
-            Map.addLayer(
-                s2_img,
-                {'bands': ['B4', 'B3', 'B2'], 'min': 0, 'max': 0.3, 'gamma': 1.3},
-                'Sentinel-2 RGB',
-                True
-            )
-
-            Map.addLayer(
-                s2_img,
-                {'bands': ['B8', 'B4', 'B3'], 'min': 0, 'max': 0.3, 'gamma': 1.3},
-                'Sentinel-2 False Color',
-                False
-            )
-
-            print("   ✓ Sentinel-2 loaded")
-
-        except Exception as e:
-            print(f"   ⚠️  Error loading Sentinel-2: {str(e)}")
-
-    # Add Sentinel-1 if Sentinel-2 provided
-    if sentinel2_id:
-        print(f"\n📡 Loading Sentinel-1 based on S2: {sentinel2_id}")
-        try:
-            s1_composite = generate_sentinel1_composite_from_s2_date(roi, sentinel2_id)
-
-            if s1_composite:
-                Map.addLayer(
-                    s1_composite.select('VV').clip(roi),
-                    {'min': 0, 'max': 1, 'palette': ['black', 'white']},
-                    'Sentinel-1 VV',
-                    False
-                )
-
-                Map.addLayer(
-                    s1_composite.select('VH').clip(roi),
-                    {'min': 0, 'max': 1, 'palette': ['black', 'white']},
-                    'Sentinel-1 VH',
-                    False
-                )
-
-                s1_rgb = s1_composite.select(['VV', 'VH']).addBands(
-                    s1_composite.select('VV').divide(s1_composite.select('VH')).rename('ratio')
-                )
-                Map.addLayer(
-                    s1_rgb.clip(roi),
-                    {'min': [0, 0, 0], 'max': [1, 1, 2], 'bands': ['VV', 'VH', 'ratio']},
-                    'Sentinel-1 RGB',
-                    False
-                )
-
-                print("   ✓ Sentinel-1 loaded")
-
-        except Exception as e:
-            print(f"   ⚠️  Error loading Sentinel-1: {str(e)}")
-
-    if landsat_id:
-        Map.add_colorbar(
-            {'min': lst_min,
-             'max': lst_max,
-             'palette': lst_palette},
-            label='Surface Temperature (°C)',
-            orientation='horizontal',
-            transparent_bg=True
-        )
-
-    print("\n✓ Map created successfully")
-
-    return Map
 
 
 # ==========================================================================

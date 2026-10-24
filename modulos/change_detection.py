@@ -12,9 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 import rasterio
-from rasterio.warp import transform_bounds
 from collections import OrderedDict
-from pathlib import Path
 from tqdm.notebook import tqdm
 
 
@@ -299,74 +297,6 @@ def write_tif(file, arr, transform, crs):
     ) as dst:
         for i in range(bands):
             dst.write(arr[:, :, i], i + 1)
-
-
-def load_raster_info(file_path):
-    """Loads raster information."""
-    with rasterio.open(file_path) as src:
-        bounds = src.bounds
-        crs = src.crs
-        transform = src.transform
-        shape = (src.height, src.width)
-        n_bands = src.count
-    return bounds, crs, transform, shape, n_bands
-
-
-def bounds_to_wgs84(bounds, crs):
-    """Converts bounds to WGS84."""
-    bounds_wgs84 = transform_bounds(crs, 'EPSG:4326',
-                                     bounds.left, bounds.bottom,
-                                     bounds.right, bounds.top)
-    return bounds_wgs84
-
-
-def create_rgb_geotiff_advanced(
-    input_path,
-    output_path,
-    bands=[3, 2, 1],
-    scale_factor=10000,
-    enhance_contrast=True,
-    percentile_min=2,
-    percentile_max=98,
-    gamma=1.0,
-    brightness=0.0
-):
-    """
-    Creates an RGB GeoTIFF with advanced visualization control.
-    """
-    with rasterio.open(input_path) as src:
-        rgb_data = src.read(bands)
-        rgb_normalized = rgb_data.astype(np.float32) / scale_factor
-
-        if enhance_contrast:
-            p_min = np.nanpercentile(rgb_normalized, percentile_min)
-            p_max = np.nanpercentile(rgb_normalized, percentile_max)
-            print(f"  📊 Percentiles: {p_min:.4f} ({percentile_min}%) - {p_max:.4f} ({percentile_max}%)")
-            rgb_normalized = (rgb_normalized - p_min) / (p_max - p_min)
-
-        if gamma != 1.0:
-            rgb_normalized = np.power(rgb_normalized, 1.0 / gamma)
-            print(f"  ✿ Gamma applied: {gamma}")
-
-        if brightness != 0.0:
-            rgb_normalized = rgb_normalized + brightness
-            print(f"  💡 Brightness adjusted: {brightness:+.2f}")
-
-        rgb_normalized = np.clip(rgb_normalized, 0, 1)
-        rgb_uint8 = (rgb_normalized * 255).astype(np.uint8)
-        print(f"  📊 Result: min={np.min(rgb_uint8)}, max={np.max(rgb_uint8)}, mean={np.mean(rgb_uint8):.1f}")
-
-        meta = src.meta.copy()
-        meta.update({
-            'count': 3,
-            'dtype': 'uint8',
-            'nodata': None
-        })
-
-        with rasterio.open(output_path, 'w', **meta) as dst:
-            dst.write(rgb_uint8)
-
-        print(f"  ✔ Saved: {output_path}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
