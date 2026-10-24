@@ -194,11 +194,25 @@ def apply_building_change_mask_to_results(
     mask_ee=None,
     verbose=False,
     show_violin=False,
+    num_points=2000,
 ):
     """
-    Applies binary change mask to the integrated analysis results.
-    ROBUST VERSION: Uses direct sampling instead of spatial conversion.
-    UPDATED: Includes UHI intensity classification analysis.
+    Compares the thermal response of pixels WITH new buildings (mask = 1) and
+    WITHOUT new buildings (mask = 0): Mann–Whitney U, Cohen's d, and Pearson/
+    Spearman correlation of Δ index × Δ LST inside the new-building area.
+
+    Args:
+        results_dict (dict): Output of analyze_spectral_index_thermal_uhi_integration_gee.
+        binary_change_mask (np.ndarray): 0/1 mask (NaN = nodata) from apply_threshold.
+        roi (ee.Geometry): Region of interest.
+        scale (int): Sampling scale in meters.
+        mask_ee (ee.Image, optional): Mask already converted to ee.Image (cell 6.5).
+        num_points (int): Samples drawn PER GROUP (stratifiedSample numPoints).
+        show_violin (bool): Also draw violin plots.
+
+    Returns:
+        dict: stats_change / stats_no_change, samples_*, correlations,
+              differences, statistics (p-values, Cohen's d), interpretation.
     """
     _print = print if verbose else lambda *a, **k: None
 
@@ -223,9 +237,10 @@ def apply_building_change_mask_to_results(
 
     n_change = np.sum(binary_change_mask == 1)
     n_no_change = np.sum(binary_change_mask == 0)
+    n_valid = int(n_change + n_no_change)  # excludes NaN (nodata) pixels
 
     _print(f"   ✓ Shape: {binary_change_mask.shape}")
-    _print(f"   ✓ New construction pixels: {n_change:,} ({n_change/binary_change_mask.size*100:.2f}%)")
+    _print(f"   ✓ New construction pixels: {n_change:,} ({n_change/max(n_valid, 1)*100:.2f}%)")
     _print(f"   ✓ Other pixels: {n_no_change:,}")
 
     if n_change == 0:
@@ -298,14 +313,21 @@ def apply_building_change_mask_to_results(
 
     try:
         samples = combined.stratifiedSample(
-            numPoints=2000,
+            numPoints=int(num_points),
             classBand='mask_class',
             region=roi,
             scale=scale,
+            seed=42,
             geometries=False
         )
 
-        all_data = samples.getInfo()['features']
+        # Keep only features where every sampled band is present, so that all
+        # arrays below refer to the same pixels (pairs stay aligned).
+        _required = ['delta_index', 'delta_lst', 'delta_uhi']
+        if _has_abs:
+            _required += ['index_t1', 'index_t2', 'lst_t1', 'lst_t2']
+        all_data = [f for f in samples.getInfo()['features']
+                    if all(f['properties'].get(k) is not None for k in _required)]
 
         # Separar por classe
         data_change = [f for f in all_data if f['properties'].get('mask_class', 0) == 1]
@@ -636,7 +658,7 @@ def apply_building_change_mask_to_results(
         fig.suptitle(
             f'Zonal Analysis — {results_dict["index_name"].upper()} × Thermal ({roi_name})\n'
             f'n_change={len(delta_lst_change):,}  |  n_control={len(delta_lst_no_change):,}  '
-            f'|  change_pixels={n_change:,} ({n_change/binary_change_mask.size*100:.1f}%)',
+            f'|  change_pixels={n_change:,} ({n_change/max(n_valid, 1)*100:.1f}%)',
             fontsize=10, y=1.02
         )
 
@@ -731,7 +753,8 @@ def apply_building_change_mask_to_results(
         'mask_name': mask_name,
         'index_name': results_dict['index_name'],
         'n_change_pixels': int(n_change),
-        'n_total_pixels': int(binary_change_mask.size),
+        'n_total_pixels': n_valid,
+        'scale': scale,
         'stats_change': stats_change,
         'stats_no_change': stats_no_change,
         'samples_change': {
@@ -802,7 +825,6 @@ def create_interactive_zonal_map(
     roi,
     sentinel_t1_image,
     sentinel_t2_image,
-    amostras=3000,
     zoom=15,
     roi_name='study_area',
     mask_ee=None,

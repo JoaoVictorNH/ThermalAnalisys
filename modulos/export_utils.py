@@ -1,14 +1,13 @@
 # ==============================================================================
 # export_utils.py — Export Functions for Google Drive
 # ==============================================================================
-# Export of results (LST, UHI, indices) to Google Drive,
-# for both single-period and bitemporal analyses.
+# Export of bitemporal results (LST, UHI, indices, deltas, CDI, Sentinel-1/2
+# inputs of the change detection model) to Google Drive.
 # ==============================================================================
 
 import ee
 
 # --- Cross-module imports ---
-from modulos.gee_setup import get_utm_crs
 from modulos.image_processing import generate_sentinel1_composite_from_s2_date
 
 
@@ -78,23 +77,11 @@ def export_bitemporal_results(
 
     tasks = []
 
-    # Determine UTM CRS from geometry
-    if not isinstance(roi, ee.Geometry):
-        print("  ⚠️ ROI is not a valid geometry. Cannot determine UTM CRS.")
-        crs = config.get('export_crs', 'EPSG:4326')
-        print(f"  Using default CRS: {crs}")
-    else:
-        try:
-            coords = roi.centroid(0.1).coordinates().getInfo()
-            crs = get_utm_crs(coords[0], coords[1])
-            print(f"Determined CRS: {crs}")
-        except Exception as e:
-            print(f"  ⚠️ Error determining UTM CRS: {e}")
-            crs = config.get('export_crs', 'EPSG:4326')
-            print(f"  Using default CRS: {crs}")
-
-    # Export scale
-    scale = config.get('export_scale', config.get('export_resolution', 10))
+    # Sentinel-1 is exported on exactly the same grid as Sentinel-2 (same CRS,
+    # 10 m, same region): the change detection model stacks both rasters
+    # pixel-by-pixel, so any CRS/scale mismatch would misalign or break them.
+    crs = config['export_crs']
+    scale = 10
 
     # Sentinel-1 polarizations
     s1_pols = config.get('s1_polarizations', ['VV', 'VH'])

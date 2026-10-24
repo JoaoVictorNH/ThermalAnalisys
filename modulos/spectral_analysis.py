@@ -6,6 +6,8 @@
 # ==============================================================================
 
 import ee
+import eemont  # noqa: F401 — registers ee.Image operator overloading (+, -, *, /)
+               # and ee.Image.spectralIndices, both used below
 import pandas as pd
 
 # --- Optional imports for dynamic indices ---
@@ -215,7 +217,6 @@ def calculate_spectral_indices_dynamic(image, indices_list, sensor='landsat', ve
     # Try via eemont first
     eemont_success = False
     try:
-        import eemont  # noqa: F401  (registers ee.Image.spectralIndices)
         # eemont expects the image to have standard band names
         # Try to process all at once (with resolved names)
         result_image = image.spectralIndices(resolved_indices)
@@ -488,13 +489,14 @@ def _calc_fvc_emissivity(ndvi):
 
 def calculate_spectral_indices_landsat(image):
     """
-    Computes spectral indices for a Landsat 8/9 image.
+    Computes the built-in set of spectral indices for a Landsat 8/9 image.
 
     Args:
-        image: Processed Landsat image with optical bands
+        image (ee.Image): Landsat SR image with bands SR_B2…SR_B7 (reflectance 0–1)
 
     Returns:
-        dict: Dictionary with computed indices (ndvi, ndwi, ndbi, ui)
+        dict: {index_name_lower: ee.Image} — ndvi, evi, savi, ndwi, mndwi, bsi, ndti,
+              dbsi, ndbi, nbai, nbi, ibi, urban_arid, ui, albedo, fvc, emissivity
     """
 
     # Redefine bands based on reference
@@ -505,7 +507,6 @@ def calculate_spectral_indices_landsat(image):
     N = image.select('SR_B5')   # NIR
     SWIR1 = image.select('SR_B6')  # SWIR1
     SWIR2 = image.select('SR_B7')  # SWIR2
-    T1 = image.select('ST_B10')  # Temperature
     L = 0.5 # soil correction factor
 
     # VEGETATION ---------------------------------------------------------------
@@ -528,7 +529,7 @@ def calculate_spectral_indices_landsat(image):
     mndwi = ((G - SWIR1) / (G + SWIR1)).rename('MNDWI')
 
     # SOIL --------------------------------------------------------------------
-    bsi = ((SWIR1 + R) - (N + B))/((SWIR1 + R) + (N + B)).rename('BSI')
+    bsi = (((SWIR1 + R) - (N + B))/((SWIR1 + R) + (N + B))).rename('BSI')
     ndti = ((SWIR1 - SWIR2)/(SWIR1 + SWIR2)).rename('NDTI')
     dbsi = (((SWIR1 - G)/(SWIR1 + G)) - ((N - R)/(N + R))).rename('DBSI')
 
@@ -583,23 +584,14 @@ def calculate_spectral_indices_landsat(image):
 
 def calculate_spectral_indices_sentinel2(image):
     """
-    Computes spectral indices for a Sentinel-2 image.
+    Computes the built-in set of spectral indices for a Sentinel-2 image.
 
     Args:
-        image: Dictionary with adjusted Sentinel-2 bands
+        image (ee.Image): Sentinel-2 image with bands B2, B3, B4, B8, B11, B12 (reflectance 0–1)
 
     Returns:
-        dict: Dictionary with computed indices (ndvi, ndwi, ndbi, ui)
+        dict: {index_name_lower: ee.Image} — same keys as calculate_spectral_indices_landsat
     """
-    # Create combined image from dictionary
-    s2_img = ee.Image.cat([
-        image['B2'].rename('B2'),
-        image['B3'].rename('B3'),
-        image['B4'].rename('B4'),
-        image['B8'].rename('B8'),
-        image['B11'].rename('B11'),
-        image['B12'].rename('B12')
-    ])
 
     # Redefine bands based on reference
 
@@ -631,7 +623,7 @@ def calculate_spectral_indices_sentinel2(image):
     mndwi = ((G - SWIR1) / (G + SWIR1)).rename('MNDWI')
 
     # SOLO --------------------------------------------------------------------
-    bsi = ((SWIR1 + R) - (N + B))/((SWIR1 + R) + (N + B)).rename('BSI')
+    bsi = (((SWIR1 + R) - (N + B))/((SWIR1 + R) + (N + B))).rename('BSI')
     ndti = ((SWIR1 - SWIR2)/(SWIR1 + SWIR2)).rename('NDTI')
     dbsi = (((SWIR1 - G)/(SWIR1 + G)) - ((N - R)/(N + R))).rename('DBSI')
 

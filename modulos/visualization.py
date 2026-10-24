@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from modulos.image_processing import (
     generate_sentinel1_composite_from_s2_date,
     get_landsat_collection, get_selected_landsat_image,
-    get_selected_sentinel2_image, get_sentinel2_collection,
+    get_selected_sentinel2_image, get_sentinel2_collection, get_s2_collection_name,
     process_landsat_image, process_landsat_median,
     process_sentinel2_image, process_sentinel2_median
 )
@@ -78,8 +78,7 @@ def _process_period(config, s2_collection, label):
 
 
 def calculate_bitemporal_lst(config_t1, config_t2,
-                             s2_collection_t1='COPERNICUS/S2_SR_HARMONIZED',
-                             s2_collection_t2='COPERNICUS/S2_SR_HARMONIZED'):
+                             s2_collection_t1=None, s2_collection_t2=None):
     """
     Bitemporal processing: Landsat LST at native 30 m, Sentinel-2 (10 m),
     Landsat and Sentinel-2 spectral indices, and Sentinel-1 SAR composites.
@@ -87,8 +86,11 @@ def calculate_bitemporal_lst(config_t1, config_t2,
     Args:
         config_t1 (dict): Configuration for period T1 (create_tenst_config).
         config_t2 (dict): Configuration for period T2.
-        s2_collection_t1 (str): Sentinel-2 collection used to load the T1 image ID.
-        s2_collection_t2 (str): Sentinel-2 collection used to load the T2 image ID.
+        s2_collection_t1 (str, optional): Sentinel-2 collection of the T1 image ID.
+            None (default) = chosen from the image date: S2_SR_HARMONIZED from
+            2017-03-28 on, S2_HARMONIZED (TOA) before — the same rule used by
+            search_available_images, so the listed IDs always exist.
+        s2_collection_t2 (str, optional): Same, for T2.
 
     Returns:
         dict: {'t1': {...}, 't2': {...}, 's2_median_t1/t2', 's1_t1/t2',
@@ -895,73 +897,28 @@ def analyze_spectral_index_thermal_uhi_integration_gee(
     # Sample download
     _print(f"   ⬇️  Downloading {max_download} samples...")
 
-    try:
-        samples_values = samples_list.map(get_properties).getInfo()
+    def _download_rows():
+        try:
+            return samples_list.map(get_properties).getInfo()
+        except Exception:
+            _print(f"   ⚠️  Direct download failed, using batches...")
+            rows, batch_size = [], 500
+            for start_idx in range(0, max_download, batch_size):
+                try:
+                    batch_list = samples_list.slice(start_idx, min(start_idx + batch_size, max_download))
+                    rows.extend(batch_list.map(get_properties).getInfo())
+                except Exception:
+                    _print(f"      ⚠️  Batch starting at {start_idx} failed")
+            return rows
 
-        delta_index_sample = np.array([v[0] for v in samples_values if v[0] is not None], dtype=float)
-        delta_lst_sample   = np.array([v[1] for v in samples_values if v[1] is not None], dtype=float)
-        delta_uhi_sample   = np.array([v[2] for v in samples_values if v[2] is not None], dtype=float)
-        index_t1_sample    = np.array([v[3] for v in samples_values if len(v) > 3 and v[3] is not None], dtype=float)
-        index_t2_sample    = np.array([v[4] for v in samples_values if len(v) > 4 and v[4] is not None], dtype=float)
-        lst_t1_sample      = np.array([v[5] for v in samples_values if len(v) > 5 and v[5] is not None], dtype=float)
-        lst_t2_sample      = np.array([v[6] for v in samples_values if len(v) > 6 and v[6] is not None], dtype=float)
-
-    except Exception as e:
-        _print(f"   ⚠️  Direct download failed, using batches...")
-
-        batch_size = 500
-        delta_index_sample = []
-        delta_lst_sample   = []
-        delta_uhi_sample   = []
-        index_t1_sample    = []
-        index_t2_sample    = []
-        lst_t1_sample      = []
-        lst_t2_sample      = []
-
-        num_batches = int(np.ceil(max_download / batch_size))
-
-        for i in range(num_batches):
-            try:
-                start_idx = i * batch_size
-                end_idx = min(start_idx + batch_size, max_download)
-
-                batch_list = samples_list.slice(start_idx, end_idx)
-                batch_values = batch_list.map(get_properties).getInfo()
-
-                delta_index_sample.extend([v[0] for v in batch_values if v[0] is not None])
-                delta_lst_sample.extend([v[1] for v in batch_values if v[1] is not None])
-                delta_uhi_sample.extend([v[2] for v in batch_values if v[2] is not None])
-                index_t1_sample.extend([v[3] for v in batch_values if len(v) > 3 and v[3] is not None])
-                index_t2_sample.extend([v[4] for v in batch_values if len(v) > 4 and v[4] is not None])
-                lst_t1_sample.extend([v[5] for v in batch_values if len(v) > 5 and v[5] is not None])
-                lst_t2_sample.extend([v[6] for v in batch_values if len(v) > 6 and v[6] is not None])
-
-            except Exception as batch_error:
-                _print(f"      ⚠️  Batch {i+1} error")
-                continue
-
-        delta_index_sample = np.array(delta_index_sample, dtype=float)
-        delta_lst_sample   = np.array(delta_lst_sample, dtype=float)
-        delta_uhi_sample   = np.array(delta_uhi_sample, dtype=float)
-        index_t1_sample    = np.array(index_t1_sample, dtype=float)
-        index_t2_sample    = np.array(index_t2_sample, dtype=float)
-        lst_t1_sample      = np.array(lst_t1_sample, dtype=float)
-        lst_t2_sample      = np.array(lst_t2_sample, dtype=float)
-
-    # Synchronize lengths (delta arrays define the base length)
-    min_length = min(len(delta_index_sample), len(delta_lst_sample),
-                     len(delta_uhi_sample))
-    delta_index_sample = delta_index_sample[:min_length]
-    delta_lst_sample   = delta_lst_sample[:min_length]
-    delta_uhi_sample   = delta_uhi_sample[:min_length]
-    # Absolute T1/T2: truncate to same length if available
-    if len(index_t1_sample) >= min_length:
-        index_t1_sample = index_t1_sample[:min_length]
-        index_t2_sample = index_t2_sample[:min_length]
-        lst_t1_sample   = lst_t1_sample[:min_length]
-        lst_t2_sample   = lst_t2_sample[:min_length]
-    else:
-        index_t1_sample = index_t2_sample = lst_t1_sample = lst_t2_sample = np.array([])
+    # Keep only rows where ALL 7 properties are present, so every array refers to
+    # the same pixels (filtering each column separately could misalign the pairs
+    # used in the correlations).
+    _rows = [v for v in _download_rows() if v is not None and len(v) == 7
+             and all(x is not None for x in v)]
+    _arr = np.array(_rows, dtype=float).reshape(-1, 7)
+    (delta_index_sample, delta_lst_sample, delta_uhi_sample,
+     index_t1_sample, index_t2_sample, lst_t1_sample, lst_t2_sample) = _arr.T
 
     # Remove NaN and Inf
     valid_mask = (np.isfinite(delta_index_sample) &
@@ -971,7 +928,7 @@ def analyze_spectral_index_thermal_uhi_integration_gee(
     delta_index_sample = delta_index_sample[valid_mask]
     delta_lst_sample   = delta_lst_sample[valid_mask]
     delta_uhi_sample   = delta_uhi_sample[valid_mask]
-    _has_abs = len(index_t1_sample) == min_length
+    _has_abs = True  # absolute T1/T2 values are always sampled together with the deltas
     if _has_abs:
         index_t1_sample = index_t1_sample[valid_mask]
         index_t2_sample = index_t2_sample[valid_mask]
@@ -1486,6 +1443,7 @@ def create_correlation_plots(
 
     n = len(delta_index_sample)
     has_abs = len(index_t1_sample) > 10
+    _px = results_dict.get('scale', 30)  # sampling scale, for axis labels
 
     if n < 30:
         _print(f"   Insufficient samples ({n} < 30). Skipping visualization.")
@@ -1619,7 +1577,7 @@ def create_correlation_plots(
                  label=f'±P{percentile_threshold}(|Δ|) = {_pct_di:.3f}  [limiar colormap]')
     ax_c.axvline(-_pct_di, color='red', lw=1.5, ls='-.')
     ax_c.set_xlabel(f'Δ {index_name}', fontsize=10)
-    ax_c.set_ylabel('Pixels (30 m × 30 m)', fontsize=10)
+    ax_c.set_ylabel(f'Pixels ({_px} m × {_px} m)', fontsize=10)
     ax_c.set_title(f'(c)  Δ {index_name} Distribution  (n = {n})',
                    fontsize=11, fontweight='bold')
     ax_c.legend(fontsize=7.5)
@@ -1644,7 +1602,7 @@ def create_correlation_plots(
                  label=f'±P{percentile_threshold}(|Δ LST|) = {_pct_dl:.2f}°C  [limiar colormap]')
     ax_d.axvline(-_pct_dl, color='red', lw=1.5, ls='-.')
     ax_d.set_xlabel('Δ LST (°C)', fontsize=10)
-    ax_d.set_ylabel('Pixels (30 m × 30 m)', fontsize=10)
+    ax_d.set_ylabel(f'Pixels ({_px} m × {_px} m)', fontsize=10)
     ax_d.set_title(f'(d)  Δ LST (°C) Distribution  (n = {n})',
                    fontsize=11, fontweight='bold')
     ax_d.legend(fontsize=7.5)
@@ -2015,11 +1973,11 @@ def visualize_selected_images(l8_id, s2_id, roi, zoom=12, Map=None):
     """
     Creates an interactive map for preview of selected images.
 
-    Displays the Sentinel-2 RGB composite and the thermal band (ST_B10) of
-    Landsat 8 for the region of interest. Used in selection cells 3.2 and 3.4.
+    Displays the Landsat RGB, Sentinel-2 RGB and the Landsat thermal band (ST_B10,
+    in °C) for the region of interest. Used in selection cells 3.2 and 3.4.
 
     Args:
-        l8_id (str): Landsat 8 image ID (e.g. 'LC08_218063_20190810').
+        l8_id (str): Landsat 8/9 image ID (e.g. 'LC08_218063_20190810' or 'LC09_...').
         s2_id (str): Sentinel-2 image ID (e.g. '20190810T131251_20190810T1...').
         roi (ee.Geometry): Region of interest for centering and clipping.
         zoom (int): Initial zoom level. Default: 12.
@@ -2034,12 +1992,22 @@ def visualize_selected_images(l8_id, s2_id, roi, zoom=12, Map=None):
         Map.setCenter(center[0], center[1], zoom)
         Map.add_basemap('SATELLITE')
 
-    # ---- Landsat 8 (daily mosaic → covers entire ROI) ----
+    vis_lst_prev = {'min': 20, 'max': 60,
+                    'palette': ['#313695', '#4575b4', '#74add1', '#abd9e9',
+                                '#e0f3f8', '#ffffbf', '#fee090', '#fdae61',
+                                '#f46d43', '#d73027', '#a50026']}
+    l8_lst = None
+
+    # ---- Landsat 8/9 (daily mosaic → covers entire ROI) ----
     try:
+        # Sensor from ID prefix: LC08 → Landsat 8, LC09 → Landsat 9
+        _ls_collection = ('LANDSAT/LC09/C02/T1_L2' if l8_id.upper().startswith('LC09')
+                          else 'LANDSAT/LC08/C02/T1_L2')
+        _ls_label = 'Landsat 9' if 'LC09' in _ls_collection else 'Landsat 8'
         # Extract date from ID: 'LC08_218063_20190810' → '2019-08-10'
         _l8_date_raw = l8_id.split('_')[-1]
         _l8_date = f'{_l8_date_raw[:4]}-{_l8_date_raw[4:6]}-{_l8_date_raw[6:8]}'
-        l8_col = (ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+        l8_col = (ee.ImageCollection(_ls_collection)
                   .filterDate(_l8_date, ee.Date(_l8_date).advance(1, 'day'))
                   .filterBounds(roi))
         l8_mosaic = l8_col.mosaic()
@@ -2049,27 +2017,20 @@ def visualize_selected_images(l8_id, s2_id, roi, zoom=12, Map=None):
                   .multiply(0.00341802).add(149.0)
                   .subtract(273.15)
                   .clip(roi))
-        vis_lst_prev = {'min': 20, 'max': 60,
-                        'palette': ['#313695','#4575b4','#74add1','#abd9e9',
-                                    '#e0f3f8','#ffffbf','#fee090','#fdae61',
-                                    '#f46d43','#d73027','#a50026']}
-        
         l8_rgb = (l8_mosaic
                   .select(['SR_B4', 'SR_B3', 'SR_B2'])
                   .multiply(0.0000275).add(-0.2)
                   .clip(roi))
-        vis_l8 = {'min': 0, 'max': 0.3, 'gamma': 1.3}
-        Map.addLayer(l8_rgb, vis_l8, '🛰️ Landsat 8 (RGB)', True)
-        
+        Map.addLayer(l8_rgb, {'min': 0, 'max': 0.3, 'gamma': 1.3}, f'🛰️ {_ls_label} (RGB)', True)
     except Exception as e:
-        print(f"Error loading Landsat 8: {e}")
+        print(f"Error loading Landsat: {e}")
 
     # ---- Sentinel-2 (daily mosaic → covers entire ROI) ----
     try:
         # Extract date from ID: '20190810T131251_20190810T131257_T24MUB' → '2019-08-10'
         _s2_date_raw = s2_id[:8]
         _s2_date = f'{_s2_date_raw[:4]}-{_s2_date_raw[4:6]}-{_s2_date_raw[6:8]}'
-        s2_col = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+        s2_col = (ee.ImageCollection(get_s2_collection_name(_s2_date))
                   .filterDate(_s2_date, ee.Date(_s2_date).advance(1, 'day'))
                   .filterBounds(roi))
         s2_img = s2_col.mosaic().multiply(0.0001).clip(roi)
@@ -2079,7 +2040,8 @@ def visualize_selected_images(l8_id, s2_id, roi, zoom=12, Map=None):
         print(f"Error loading Sentinel-2: {e}")
 
     # LST layer
-    Map.addLayer(l8_lst, vis_lst_prev, '🌡️ LST — Temperature (°C)', True, 0.5)
+    if l8_lst is not None:
+        Map.addLayer(l8_lst, vis_lst_prev, '🌡️ LST — Temperature (°C)', True, 0.5)
 
     # ---- ROI ----
     empty = ee.Image().byte()

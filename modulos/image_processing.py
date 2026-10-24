@@ -278,19 +278,18 @@ def apply_sentinel2_scale_factors(image):
 
 def maskL8clouds(image):
     """
-    Applies cloud, shadow, fill, and water mask for Landsat 8/9 Collection 2.
+    Applies fill, cloud and cloud-shadow mask for Landsat 8/9 Collection 2.
 
     Uses the QA_PIXEL band from Landsat C02 Level-2.
-    Masking water is essential for LST analysis: the USGS ST algorithm does not
-    process water bodies (ASTER GED emissivity unavailable), so ST_B10 is null
-    on those pixels while optical bands remain valid.
-    Without this mask, water pixels create a nullity mismatch between RGB and LST.
 
     Masked bits:
         Bit 0: Fill         — pixels with no sensor data
         Bit 3: Cloud        — clouds
         Bit 4: Cloud Shadow — cloud shadows
-        Bit 7: Water        — water (ST_B10 is null here by C2 design)
+
+    Water (bit 7) is NOT masked here. Where the USGS ST product has no
+    emissivity, ST_B10 is already null, so those pixels drop out of the
+    LST-based statistics on their own.
 
     Args:
         image (ee.Image): Landsat C02 T1_L2 image.
@@ -338,38 +337,45 @@ def maskS2clouds(image):
 # 3. IMAGE COLLECTION SEARCH
 # ==========================================================================
 
+# Sentinel-2 L2A (surface reflectance) is only available in GEE from this date on.
+S2_SR_START_DATE = '2017-03-28'
+
+
+def get_s2_collection_name(date_str):
+    """
+    Returns the Sentinel-2 collection to use for a given date (YYYY-MM-DD or YYYYMMDD...).
+
+    S2_SR_HARMONIZED (L2A, surface reflectance) from 2017-03-28 on;
+    S2_HARMONIZED (L1C, TOA) before that.
+    """
+    d = str(date_str).replace('-', '')[:8]
+    return ('COPERNICUS/S2_HARMONIZED' if d < S2_SR_START_DATE.replace('-', '')
+            else 'COPERNICUS/S2_SR_HARMONIZED')
+
+
 def get_sentinel2_collection(config):
     """
     Retrieves Sentinel-2 image collection filtered by date, region, and cloud cover.
 
     Automatically selects between S2_HARMONIZED (TOA) and S2_SR_HARMONIZED
-    (Surface Reflectance) based on the start date.
+    (Surface Reflectance) based on the start date (see get_s2_collection_name).
 
     Args:
         config (dict): Configuration dictionary.
 
     Returns:
-        tuple: (ee.ImageCollection, str) — Filtered collection and collection name.
+        ee.ImageCollection: Cloud-masked, scaled Sentinel-2 collection.
     """
-    start_date_obj = ee.Date(config['start_date'])
-    cutoff_date = ee.Date('2017-03-28')
-
-    if start_date_obj.millis().lt(cutoff_date.millis()).getInfo():
-        collection_name = 'COPERNICUS/S2_HARMONIZED'
-        print(f"Using collection: {collection_name} (TOA)")
-    else:
-        collection_name = 'COPERNICUS/S2_SR_HARMONIZED'
-        print(f"Using collection: {collection_name} (Surface Reflectance)")
+    collection_name = get_s2_collection_name(config['start_date'])
+    _kind = 'TOA' if collection_name.endswith('/S2_HARMONIZED') else 'Surface Reflectance'
+    print(f"Using collection: {collection_name} ({_kind})")
 
     collection = (ee.ImageCollection(collection_name)
-                 .filterBounds(config['geometry'])
-                 .filterDate(config['start_date'], config['end_date'])
-                 .filterMetadata('CLOUDY_PIXEL_PERCENTAGE', 'less_than', config['cloud_cover']))
-
-    if collection_name == 'COPERNICUS/S2_SR_HARMONIZED':
-        collection = collection.map(maskS2clouds).map(apply_sentinel2_scale_factors)
-    else:
-        collection = collection.map(maskS2clouds).map(apply_sentinel2_scale_factors)
+                  .filterBounds(config['geometry'])
+                  .filterDate(config['start_date'], config['end_date'])
+                  .filterMetadata('CLOUDY_PIXEL_PERCENTAGE', 'less_than', config['cloud_cover'])
+                  .map(maskS2clouds)
+                  .map(apply_sentinel2_scale_factors))
 
     return collection
 
@@ -527,55 +533,54 @@ def get_selected_landsat_image(landsat_id, roi, landsat_type='L8'):
     return landsat_img
 
 
-def get_selected_sentinel2_image(sentinel2_id, roi, s2_collection='COPERNICUS/S2_HARMONIZED'):
+def get_selected_sentinel2_image(sentinel2_id, roi, s2_collection=None):
     """
-    Loads the Sentinel-2 mosaic from the same day as the provided ID and fills gaps in the ROI.
+    Loads the Sentinel-2 mosaic of all tiles acquired on the same day as the
+    provided ID (covers ROIs that cross tile borders).
 
     Example ID: '20190810T131251_20190810T131246_T24MUB'
+
+    Cloud/cirrus pixels (QA60) stay MASKED so that spectral indices and maps
+    ignore them. They are only filled with 0 when the image is read back for
+    the change-detection model (change_detection.run_inference), exactly as
+    before.
 
     Args:
         sentinel2_id (str): Sentinel-2 image ID.
         roi: Region of interest.
-        s2_collection (str): Sentinel-2 collection name.
+        s2_collection (str, optional): Sentinel-2 collection name. If None, it is
+            chosen from the image date (see get_s2_collection_name).
 
     Returns:
-        ee.Image: Processed and clipped Sentinel-2 mosaic.
+        ee.Image: Bands B2, B3, B4, B8, B11, B12 in reflectance (0–1), clipped to ROI.
     """
     match = re.match(r"(\d{8})", sentinel2_id)
     if not match:
         raise ValueError(f"Invalid ID: {sentinel2_id}")
     date_str = match.group(1)
+    if s2_collection is None:
+        s2_collection = get_s2_collection_name(date_str)
+    s2_collection = s2_collection.rstrip('/')
     date = ee.Date.fromYMD(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
     next_day = date.advance(1, 'day')
 
     # Native projection of the reference tile (lazy — no download cost).
     # Required because mosaic() does not inherit projection; process_sentinel2_image
-    # calls .projection() to get the target CRS for LST reproject().
-    # Without this, s2_projection is undefined and LST reproject() produces nulls.
+    # calls .projection() to get the target CRS for the Landsat reprojection.
     ref_s2_projection = ee.Image(f"{s2_collection}/{sentinel2_id}").select('B2').projection()
 
     s2 = (ee.ImageCollection(s2_collection)
           .filterDate(date, next_day)
-          .filterBounds(roi))
+          .filterBounds(roi)
+          .map(maskS2clouds))
 
-    def mask_s2_clouds(img):
-        qa = img.select('QA60')
-        cloudBitMask = 1 << 10
-        cirrusBitMask = 1 << 11
-        mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-        return img.updateMask(mask)
-
-    try:
-        s2 = s2.map(mask_s2_clouds)
-    except Exception:
-        pass
-
-    s2_mosaic = s2.mosaic()
-    s2_mosaic = apply_sentinel2_scale_factors(s2_mosaic)
-    s2_mosaic = s2_mosaic.clamp(0, 1).unmask(0).float()
-    # setDefaultProjection declares the native projection of the reference tile WITHOUT resampling.
-    s2_mosaic = s2_mosaic.setDefaultProjection(crs=ref_s2_projection)
-    s2_mosaic = s2_mosaic.clip(roi)
+    s2_mosaic = (apply_sentinel2_scale_factors(s2.mosaic())
+                 .select(['B2', 'B3', 'B4', 'B8', 'B11', 'B12'])
+                 .clamp(0, 1)
+                 .float()
+                 # declares the native projection of the reference tile WITHOUT resampling
+                 .setDefaultProjection(crs=ref_s2_projection)
+                 .clip(roi))
 
     return s2_mosaic
 
