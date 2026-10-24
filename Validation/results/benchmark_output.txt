@@ -1,0 +1,75 @@
+Benchmark output (U-Net vs spectral index differencing), Sobral validation area 2016–2023.
+Produced with modulos/cd_benchmark.py on the files in Validation/data/ (2,000 bootstrap resamples).
+
+
+######## U-Net threshold 50
+========================================================================================================
+CHANGE DETECTION BENCHMARK — U-Net vs spectral index differencing (same reference map)
+========================================================================================================
+valid pixels: 81,706 (10 m) | change in reference: 5.0% | 95% CI: spatial block bootstrap, 81 blocks of 32×32 px
+
+method                                           F1           95% CI    IoU  Prec.   Rec.      κ   area
+U-Net (threshold 50)                          0.554   [0.514, 0.582]  0.383  0.455  0.708  0.525   7.8%
+U-Net best (threshold 45, optimistic)         0.554   [0.515, 0.580]  0.383  0.440  0.747  0.524   8.5%
+ΔNDBI (Otsu)                                  0.078   [0.050, 0.110]  0.041  0.042  0.646 -0.018  77.8%
+ΔNDBI (same area as U-Net)                    0.026   [0.014, 0.040]  0.013  0.021  0.033 -0.037   7.8%
+ΔNBAI (Otsu)                                  0.253   [0.179, 0.321]  0.145  0.157  0.652  0.188  20.8%
+ΔNBAI (same area as U-Net)                    0.335   [0.249, 0.402]  0.201  0.275  0.428  0.292   7.8%
+ΔDBSI (Otsu)                                  0.092   [0.059, 0.131]  0.048  0.049  0.834 -0.003  85.7%
+ΔDBSI (same area as U-Net)                    0.081   [0.041, 0.123]  0.042  0.066  0.104  0.021   7.8%
+ΔBSI (Otsu)                                   0.086   [0.054, 0.123]  0.045  0.046  0.751 -0.009  82.3%
+ΔBSI (same area as U-Net)                     0.053   [0.027, 0.083]  0.027  0.044  0.068 -0.008   7.8%
+ΔNDVI (Otsu)                                  0.122   [0.079, 0.171]  0.065  0.065  0.911  0.032  69.8%
+ΔNDVI (same area as U-Net)                    0.068   [0.046, 0.091]  0.035  0.056  0.087  0.008   7.8%
+
+F1 difference, U-Net (threshold 50) minus each alternative (95% CI):
+   vs ΔNDBI (Otsu)                            +0.476  [+0.440, +0.508]  U-Net better
+   vs ΔNDBI (same area as U-Net)              +0.528  [+0.491, +0.556]  U-Net better
+   vs ΔNBAI (Otsu)                            +0.300  [+0.238, +0.367]  U-Net better
+   vs ΔNBAI (same area as U-Net)              +0.219  [+0.156, +0.297]  U-Net better
+   vs ΔDBSI (Otsu)                            +0.462  [+0.422, +0.498]  U-Net better
+   vs ΔDBSI (same area as U-Net)              +0.473  [+0.432, +0.511]  U-Net better
+   vs ΔBSI (Otsu)                             +0.468  [+0.430, +0.503]  U-Net better
+   vs ΔBSI (same area as U-Net)               +0.500  [+0.464, +0.533]  U-Net better
+   vs ΔNDVI (Otsu)                            +0.432  [+0.385, +0.474]  U-Net better
+   vs ΔNDVI (same area as U-Net)              +0.485  [+0.444, +0.521]  U-Net better
+
+'Otsu' needs no reference map (how a municipality would apply it); 'same area' compares the
+methods at an equal detected area; 'U-Net best' uses the reference to pick the threshold (upper bound).
+
+######## U-Net threshold 45
+========================================================================================================
+CHANGE DETECTION BENCHMARK — U-Net vs spectral index differencing (same reference map)
+========================================================================================================
+valid pixels: 81,706 (10 m) | change in reference: 5.0% | 95% CI: spatial block bootstrap, 81 blocks of 32×32 px
+
+method                                           F1           95% CI    IoU  Prec.   Rec.      κ   area
+U-Net (threshold 45)                          0.554   [0.515, 0.580]  0.383  0.440  0.747  0.524   8.5%
+U-Net best (threshold 45, optimistic)         0.554   [0.515, 0.580]  0.383  0.440  0.747  0.524   8.5%
+ΔNDBI (Otsu)                                  0.078   [0.050, 0.110]  0.041  0.042  0.646 -0.018  77.8%
+ΔNDBI (same area as U-Net)                    0.030   [0.016, 0.045]  0.015  0.024  0.040 -0.035   8.5%
+ΔNBAI (Otsu)                                  0.253   [0.179, 0.321]  0.145  0.157  0.652  0.188  20.8%
+ΔNBAI (same area as U-Net)                    0.334   [0.247, 0.402]  0.200  0.265  0.450  0.289   8.5%
+ΔDBSI (Otsu)                                  0.092   [0.059, 0.131]  0.048  0.049  0.834 -0.003  85.7%
+ΔDBSI (same area as U-Net)                    0.087   [0.045, 0.130]  0.045  0.069  0.117  0.025   8.5%
+ΔBSI (Otsu)                                   0.086   [0.054, 0.123]  0.045  0.046  0.751 -0.009  82.3%
+ΔBSI (same area as U-Net)                     0.059   [0.030, 0.090]  0.030  0.047  0.079 -0.005   8.5%
+ΔNDVI (Otsu)                                  0.122   [0.079, 0.171]  0.065  0.065  0.911  0.032  69.8%
+ΔNDVI (same area as U-Net)                    0.073   [0.049, 0.098]  0.038  0.058  0.098  0.010   8.5%
+
+F1 difference, U-Net (threshold 45) minus each alternative (95% CI):
+   vs ΔNDBI (Otsu)                            +0.476  [+0.442, +0.505]  U-Net better
+   vs ΔNDBI (same area as U-Net)              +0.524  [+0.490, +0.551]  U-Net better
+   vs ΔNBAI (Otsu)                            +0.300  [+0.241, +0.364]  U-Net better
+   vs ΔNBAI (same area as U-Net)              +0.220  [+0.156, +0.296]  U-Net better
+   vs ΔDBSI (Otsu)                            +0.462  [+0.425, +0.494]  U-Net better
+   vs ΔDBSI (same area as U-Net)              +0.467  [+0.426, +0.506]  U-Net better
+   vs ΔBSI (Otsu)                             +0.468  [+0.432, +0.500]  U-Net better
+   vs ΔBSI (same area as U-Net)               +0.495  [+0.459, +0.528]  U-Net better
+   vs ΔNDVI (Otsu)                            +0.432  [+0.387, +0.471]  U-Net better
+   vs ΔNDVI (same area as U-Net)              +0.481  [+0.441, +0.514]  U-Net better
+
+'Otsu' needs no reference map (how a municipality would apply it); 'same area' compares the
+methods at an equal detected area; 'U-Net best' uses the reference to pick the threshold (upper bound).
+
+NBAI post-classification gain mask (notebook 02): {'TP': 1613, 'FP': 5933, 'TN': 71763, 'FN': 2483, 'precision': 0.21375563212297907, 'recall': 0.393798828125, 'F1': 0.2771001546126095, 'IoU': 0.16083358261042977, 'kappa': 0.22691249104767552, 'OA': 0.8971048513302035, 'change_share': 0.09225841158059468}

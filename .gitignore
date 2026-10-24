@@ -7,3 +7,6 @@ Modelo_Rede_Neural_Change_Detection/
 *.tif
 *.tif.aux.xml
 .agents/
+
+# Validation data are versioned on purpose
+!Validation/data/*.tif
