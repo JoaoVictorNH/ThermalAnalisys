@@ -7,6 +7,8 @@ Outputs for later validation of the analysis area and of the urban perimeter.
 - **Extent of the raster exports** (cell 10.2, `export_bitemporal_results(..., export_extent=)`): analysis area (ROI), urban perimeter (thermal reference) or both. Perimeter files end in `_perimeter`; Sentinel-1/2 products are ROI-only and skipped for the perimeter. Rasters are now clipped to their polygon (before, pixels of the perimeter inside the ROI bounding box could appear in ROI files).
 - **Validation package** (cell 10.4, `modulos/validation_export.py`): geometries (GeoJSON), run metadata, reference μ/σ and class limits, per-extent statistics and class areas, pixel samples, and the tables of cells 5.2, 6.6, 8.1b, 9.1, 9.1b and 9.3 as CSV/JSON.
 - `analyze_new_buildings_grid` also returns the cell centroids (`cell_xy`, export CRS).
+- **Landsat 8 + 9** (cell 3.1, `landsat_type='L8+L9'`): search, selection and median of both sensors merged (more clear scenes for the seasonal median). Landsat 9 IDs (`LC09_…`) are recognised in 3.2 / 3.4.
+- T2 now uses its own maximum cloud cover (cell 3.3); before, cell 4.0 applied the T1 value to both periods.
 
 ## v0.02 — 2026-10-24
 

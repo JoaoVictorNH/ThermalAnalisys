@@ -32,7 +32,7 @@ def create_tenst_config(
         start_date (str): Start date (YYYY-MM-DD).
         end_date (str): End date (YYYY-MM-DD).
         geometry: Region of interest geometry.
-        landsat_type (str): 'L8' or 'L9'.
+        landsat_type (str): 'L8', 'L9' or 'L8+L9' (both sensors merged).
         cloud_cover (int): Maximum cloud cover (%).
         landsat_id (str, optional): Specific Landsat image ID.
         sentinel2_id (str, optional): Specific Sentinel-2 image ID.
@@ -61,7 +61,7 @@ def create_tenst_config(
     print("CONFIGURATION")
     print("=" * 80)
     print(f"Search period: {start_date} to {end_date}")
-    print(f"Satellite: Landsat {landsat_type}")
+    print(f"Satellite: {landsat_label(landsat_type)}")
     print(f"Maximum cloud cover: {cloud_cover}%")
     if landsat_id:
         print(f"Selected Landsat ID: {landsat_id}")
@@ -99,7 +99,7 @@ def create_bitemporal_config(
         t2_start_date (str): T2 period start date (YYYY-MM-DD).
         t2_end_date (str): T2 period end date (YYYY-MM-DD).
         geometry: Region of interest geometry.
-        landsat_type (str): 'L8' or 'L9'.
+        landsat_type (str): 'L8', 'L9' or 'L8+L9' (both sensors merged).
         cloud_cover (int): Maximum cloud cover (%).
         landsat_t1_id (str, optional): Specific Landsat T1 image ID.
         landsat_t2_id (str, optional): Specific Landsat T2 image ID.
@@ -144,7 +144,7 @@ def create_bitemporal_config(
         print(f"  Landsat T2 ID: {landsat_t2_id}")
     if sentinel2_t2_id:
         print(f"  Sentinel-2 T2 ID: {sentinel2_t2_id}")
-    print(f"Satellite: Landsat {landsat_type}")
+    print(f"Satellite: {landsat_label(landsat_type)}")
     print(f"Maximum cloud cover: {cloud_cover}%")
     print(f"Site: {site_name}")
     print(f"Coordinate system: {export_crs}")
@@ -169,6 +169,7 @@ def create_configs_from_ids(
     export_crs='EPSG:32724',
     export_folder=None,
     reference_geometry=None,
+    cloud_cover_t2=None,
 ):
     """
     Creates configuration dictionaries for bitemporal analysis and individual
@@ -180,8 +181,8 @@ def create_configs_from_ids(
         t1_end_date (str): T1 period end date (YYYY-MM-DD).
         t2_start_date (str): T2 period start date (YYYY-MM-DD).
         t2_end_date (str): T2 period end date (YYYY-MM-DD).
-        landsat_type (str): 'L8' or 'L9'.
-        cloud_cover (int): Maximum cloud cover (%).
+        landsat_type (str): 'L8', 'L9' or 'L8+L9' (both sensors merged).
+        cloud_cover (int): Maximum cloud cover (%) for T1 (and T2 when cloud_cover_t2 is None).
         landsat_t1_id (str): Specific Landsat T1 image ID.
         sentinel2_t1_id (str): Specific Sentinel-2 T1 image ID.
         landsat_t2_id (str): Specific Landsat T2 image ID.
@@ -191,6 +192,7 @@ def create_configs_from_ids(
         export_folder (str): Google Drive export folder.
         reference_geometry (optional): Thermal reference area for the SUHI z-score
             (e.g. Sobral's urban perimeter). None = the ROI itself.
+        cloud_cover_t2 (int, optional): Maximum cloud cover (%) for T2 (cell 3.3).
 
     Returns:
         tuple: (config_bitemporal, config_t1, config_t2)
@@ -231,7 +233,7 @@ def create_configs_from_ids(
         end_date=t2_end_date,
         geometry=roi,
         landsat_type=landsat_type,
-        cloud_cover=cloud_cover,
+        cloud_cover=cloud_cover if cloud_cover_t2 is None else cloud_cover_t2,
         landsat_id=landsat_t2_id,
         sentinel2_id=sentinel2_t2_id,
         export_crs=export_crs,
@@ -393,9 +395,40 @@ def get_sentinel2_collection(config):
     return collection
 
 
+LANDSAT_COLLECTIONS = {
+    'L8': 'LANDSAT/LC08/C02/T1_L2',
+    'L9': 'LANDSAT/LC09/C02/T1_L2',
+}
+
+
+def landsat_collection_ids(landsat_type):
+    """
+    Earth Engine collection IDs for a Landsat choice: 'L8', 'L9' or 'L8+L9'
+    (both sensors merged; Landsat 9 exists from late 2021, so for earlier
+    periods 'L8+L9' returns the same scenes as 'L8').
+    """
+    t = str(landsat_type).upper().replace(' ', '')
+    if t in ('L8+L9', 'L9+L8', 'BOTH'):
+        return [LANDSAT_COLLECTIONS['L8'], LANDSAT_COLLECTIONS['L9']]
+    if t not in LANDSAT_COLLECTIONS:
+        raise ValueError(f"landsat_type must be 'L8', 'L9' or 'L8+L9' (got {landsat_type!r}).")
+    return [LANDSAT_COLLECTIONS[t]]
+
+
+def landsat_label(landsat_type):
+    """'L8' → 'Landsat 8', 'L8+L9' → 'Landsat 8 + 9'."""
+    ids = landsat_collection_ids(landsat_type)
+    return 'Landsat 8 + 9' if len(ids) == 2 else ('Landsat 9' if 'LC09' in ids[0] else 'Landsat 8')
+
+
 def get_landsat_collection(config):
     """
-    Retrieves Landsat 8 or 9 image collection filtered by date, region, and cloud cover.
+    Retrieves the Landsat 8, Landsat 9 or merged Landsat 8 + 9 collection
+    (config['landsat_type'] = 'L8', 'L9' or 'L8+L9') filtered by date, region
+    and cloud cover, sorted by acquisition time.
+
+    Both sensors are Collection 2 Level 2 with the same bands and scale factors
+    (ST_B10 → °C), so their scenes can be mixed in a median.
 
     Args:
         config (dict): Configuration dictionary.
@@ -403,19 +436,18 @@ def get_landsat_collection(config):
     Returns:
         ee.ImageCollection: Filtered Landsat collection.
     """
-    collection_ids = {
-        'L8': 'LANDSAT/LC08/C02/T1_L2',
-        'L9': 'LANDSAT/LC09/C02/T1_L2'
-    }
+    collection = None
+    for cid in landsat_collection_ids(config['landsat_type']):
+        c = (ee.ImageCollection(cid)
+             .filterBounds(config['geometry'])
+             .filterDate(config['start_date'], config['end_date'])
+             .filterMetadata('CLOUD_COVER', 'less_than', config['cloud_cover']))
+        collection = c if collection is None else collection.merge(c)
 
-    collection = (ee.ImageCollection(collection_ids[config['landsat_type']])
-                 .filterBounds(config['geometry'])
-                 .filterDate(config['start_date'], config['end_date'])
-                 .filterMetadata('CLOUD_COVER', 'less_than', config['cloud_cover'])
-                 .map(maskL8clouds)
-                 .map(apply_landsat_scale_factors))
-
-    return collection
+    return (collection
+            .sort('system:time_start')
+            .map(maskL8clouds)
+            .map(apply_landsat_scale_factors))
 
 
 # ==========================================================================
@@ -502,22 +534,18 @@ def get_selected_landsat_image(landsat_id, roi, landsat_type='L8'):
     Args:
         landsat_id (str): Landsat image ID (format: LC08_PPPRRR_YYYYMMDD).
         roi: Region of interest.
-        landsat_type (str): 'L8' or 'L9' (fallback if ID does not identify).
+        landsat_type (str): 'L8', 'L9' or 'L8+L9' (fallback if the ID does not identify the sensor).
 
     Returns:
         ee.Image: Landsat day mosaic, processed and clipped to ROI.
     """
-    collection_ids = {
-        'L8': 'LANDSAT/LC08/C02/T1_L2',
-        'L9': 'LANDSAT/LC09/C02/T1_L2'
-    }
-
+    # Sensor from the ID prefix (LC08 / LC09); the landsat_type is only a fallback
     if landsat_id.startswith('LC08'):
-        collection_id = collection_ids['L8']
+        collection_id = LANDSAT_COLLECTIONS['L8']
     elif landsat_id.startswith('LC09'):
-        collection_id = collection_ids['L9']
+        collection_id = LANDSAT_COLLECTIONS['L9']
     else:
-        collection_id = collection_ids[landsat_type]
+        collection_id = landsat_collection_ids(landsat_type)[0]
 
     # Parse date from ID (format: LC08_PPPRRR_YYYYMMDD)
     date_str = landsat_id.split('_')[-1]  # 'YYYYMMDD'
@@ -830,7 +858,7 @@ def search_available_images(config, max_display=20):
         })
 
     # ==================== LANDSAT ====================
-    print(f"\n🛰️  Searching Landsat {config['landsat_type']}...")
+    print(f"\n🛰️  Searching {landsat_label(config['landsat_type'])}...")
     landsat_col = get_landsat_collection(config)
 
     landsat_result = ee.Dictionary({
@@ -850,7 +878,7 @@ def search_available_images(config, max_display=20):
         if n_landsat > max_display:
             print(f"   ... and {n_landsat - max_display} more images")
     else:
-        print(f"\n⚠️  WARNING: No Landsat {config['landsat_type']} images found!")
+        print(f"\n⚠️  WARNING: No {landsat_label(config['landsat_type'])} images found!")
 
     # ==================== SENTINEL-2 ====================
     print(f"\n🛰️  Searching Sentinel-2...")

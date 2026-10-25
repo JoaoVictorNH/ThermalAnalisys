@@ -16,20 +16,18 @@ import numpy as np
 
 from modulos.image_processing import (
     get_selected_landsat_image, process_landsat_image, process_landsat_median,
-    maskL8clouds, apply_landsat_scale_factors,
+    maskL8clouds, apply_landsat_scale_factors, landsat_collection_ids,
 )
 from modulos.lst_analysis import calculate_uhi
 from modulos.spectral_analysis import calculate_spectral_indices_landsat
 from modulos.stats_analysis import analyze_joint_index_regression, analyze_new_buildings_grid
 
-_LANDSAT = {'L8': 'LANDSAT/LC08/C02/T1_L2', 'L9': 'LANDSAT/LC09/C02/T1_L2'}
 
 
 def _landsat_collection(geometry, start, end, landsat_type, cloud_cover):
-    types = ['L8', 'L9'] if landsat_type == 'L8+L9' else [landsat_type]
     col = None
-    for t in types:
-        c = (ee.ImageCollection(_LANDSAT[t]).filterBounds(geometry).filterDate(start, end)
+    for cid in landsat_collection_ids(landsat_type):
+        c = (ee.ImageCollection(cid).filterBounds(geometry).filterDate(start, end)
              .filterMetadata('CLOUD_COVER', 'less_than', cloud_cover))
         col = c if col is None else col.merge(c)
     return col.map(maskL8clouds).map(apply_landsat_scale_factors)
