@@ -229,9 +229,13 @@ def sample_extent_pixels(results, stats_change, roi, reference_geometry=None, ma
     if 'perimeter' in ext:
         img = img.addBands(ee.Image.constant(1).clip(ext['perimeter']).unmask(0).rename('in_perimeter'))
     if mask_ee is not None:
+        # the U-Net mask is painted from polygons (cell 6.5) and has no default projection:
+        # declare its 10 m grid first, then average it to the 30 m thermal grid
+        crs = results['lst_30m_t1'].projection().crs()
         frac = (ee.Image(mask_ee).unmask(0).clip(roi).toFloat()
+                .setDefaultProjection(crs=crs, scale=10)
                 .reduceResolution(ee.Reducer.mean(), maxPixels=1024)
-                .reproject(ee.Projection(results['lst_30m_t1'].projection().crs()).atScale(scale)))
+                .reproject(ee.Projection(crs).atScale(scale)))
         img = img.addBands(frac.unmask(0).rename('frac_new_building'))
     out = {}
     for key, geom in ext.items():

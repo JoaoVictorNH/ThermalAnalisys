@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.11 — 2026-10-25 (not yet released)
+
+- **Validation folder aligned with the code**: expected results, `results/benchmark_output.txt` and `results/benchmark_maps.png` now come from `cd_benchmark` as run in Colab (cell 6.6 / validation notebook): only the 10 m pixels inside the extent of the reference map are evaluated (77,562 pixels, 4,096 of change, 5.3 %). U-Net F1 0.555 [0.513, 0.582]; best index alternative ΔNBAI (same area) 0.341 [0.250, 0.406]; NBAI post-classification 0.281 on the same pixels. The previous values (81,792 pixels, F1 0.554) counted pixels outside the delineated area as no change.
+- Fix (cell 10.4): pixel samples failed because the U-Net mask has no default projection; it is now declared on its 10 m grid before being averaged to 30 m.
+
 ## v0.03 — 2026-10-24
 
 Outputs for later validation of the analysis area and of the urban perimeter.

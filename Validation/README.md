@@ -1,6 +1,6 @@
 # Validation of the change detection model
 
-This folder lets anyone reproduce the accuracy of the change detection component (paper, Table 8) and the
+This folder lets anyone reproduce the accuracy of the change detection component (paper, Table 7) and the
 comparison with spectral index differencing, without running the whole pipeline.
 
 ## How to run
@@ -19,22 +19,23 @@ the U-Net and needs the pre-trained weights (`mmcr_train100.pt`, Hafner, Ban and
 | `ground_truth.tif` | Reference map of new buildings between T1 and T2, delineated by the authors; band 1: 255 = new building, 0 = no change; ≈1.12 m, EPSG:32724 |
 | `mask_gain_NBAI_postclassification.tif` | Built-up gain by post-classification (NBAI > −0.8 in T1 and T2), 255 = gain |
 
-The reference map is resampled (nearest neighbour) to the 10 m grid of the prediction: 81,792 pixels, 4,096 of change (5.0 %).
+The reference map is resampled (nearest neighbour) to the 10 m grid of the prediction. Only the pixels inside the extent of the
+reference map are evaluated: 77,562 pixels, 4,096 of change (5.3 %).
 
 ## Expected results
 
 | Method | F1 [95 % CI] | IoU | Precision | Recall | κ |
 |---|---|---|---|---|---|
-| U-Net, threshold 50 (model default) | 0.554 [0.514, 0.582] | 0.383 | 0.455 | 0.708 | 0.525 |
-| U-Net, threshold 45 (best F1 on this area) | 0.554 [0.515, 0.580] | 0.383 | 0.440 | 0.747 | 0.524 |
-| ΔNBAI, same detected area as the U-Net | 0.335 [0.249, 0.402] | 0.201 | 0.275 | 0.428 | 0.292 |
-| NBAI post-classification (> −0.8) | 0.277 | 0.161 | 0.214 | 0.394 | 0.227 |
-| ΔNBAI, Otsu threshold | 0.253 [0.179, 0.321] | 0.145 | 0.157 | 0.652 | 0.188 |
-| ΔNDVI, Otsu threshold | 0.122 [0.079, 0.171] | 0.065 | 0.065 | 0.911 | 0.032 |
-| ΔNDBI, Otsu threshold | 0.078 [0.050, 0.110] | 0.041 | 0.042 | 0.646 | −0.018 |
+| U-Net, threshold 50 (model default) | 0.555 [0.513, 0.582] | 0.384 | 0.456 | 0.708 | 0.524 |
+| U-Net, threshold 45 (best F1 on this area) | 0.555 [0.515, 0.580] | 0.384 | 0.441 | 0.747 | 0.523 |
+| ΔNBAI, same detected area as the U-Net | 0.341 [0.250, 0.406] | 0.206 | 0.281 | 0.436 | 0.296 |
+| NBAI post-classification (> −0.8) | 0.281 | 0.164 | 0.219 | 0.394 | 0.229 |
+| ΔNBAI, Otsu threshold | 0.264 [0.186, 0.330] | 0.152 | 0.166 | 0.652 | 0.197 |
+| ΔNDVI, Otsu threshold | 0.129 [0.081, 0.177] | 0.069 | 0.069 | 0.911 | 0.034 |
+| ΔNDBI, Otsu threshold | 0.082 [0.052, 0.115] | 0.043 | 0.044 | 0.646 | −0.018 |
 
 Metrics refer to the change class (Hafner et al., 2023; Corley et al., 2024). The 95 % intervals come from a spatial
-block bootstrap (blocks of 32 × 32 pixels = 320 m). The full output is in `results/benchmark_output.txt` and the
+block bootstrap (blocks of 32 × 32 pixels = 320 m, 1,000 resamples, seed 42). The full output is in `results/benchmark_output.txt` and the
 maps of correct and wrong detections in `results/benchmark_maps.png`.
 
 Note: the threshold 45 used by default in the pipeline (cell 6.4) was selected on this same area. The model default
