@@ -1,7 +1,5 @@
 # ThermalAnalisys — v0.11
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23632408.svg)](https://doi.org/10.5281/zenodo.23632408)
-
 **An open-source framework that couples deep learning detection of new buildings with intra-urban surface urban heat
 island (SUHI) analysis, for cities with limited monitoring infrastructure.**
 
@@ -62,7 +60,8 @@ programming. For a city and two periods it answers three practical questions:
 - A Google account with Google Drive.
 - An **Earth Engine project** (free for non-commercial use): [earthengine.google.com/signup](https://earthengine.google.com/signup/).
 - The pre-trained change detection weights `mmcr_train100.pt` of Hafner, Ban and Nascetti (2023):
-  [download `mmcr_train100.pt`](https://drive.google.com/file/d/1F2YGSiXeQ801VOT94FCZqxU618j6D3tO/view?usp=drive_link) and place it in `Modelo_Rede_Neural_Change_Detection/` (cell 6.1).
+  download link withheld during double-blind review; place the file in `Modelo_Rede_Neural_Change_Detection/` (cell 6.1). The `Validation/` folder reproduces the
+  accuracy assessment and the benchmark without the weights.
 - A KML/KMZ of the analysis area (or draw it in the notebook) and, recommended, a KML of the urban perimeter.
 
 No GPU is needed: the inference of a zone of ~1.6 km² runs on the CPU of a free Colab session.
@@ -199,7 +198,6 @@ Validation area in Sobral, 2016–2023; 77,562 pixels of 10 m inside the referen
 ├── Validation/                  data, reference map, notebook and expected results of the change detection
 ├── docs/workflow.png            workflow figure
 ├── CHANGELOG.md                 versions
-├── CITATION.cff, .zenodo.json   citation metadata
 └── A_Zone.kmz                   analysis area of the demonstration
 ```
 
@@ -219,9 +217,9 @@ Validation area in Sobral, 2016–2023; 77,562 pixels of 10 m inside the referen
 
 ## Versions, citation and license
 
-- Changes between versions: [`CHANGELOG.md`](CHANGELOG.md). Releases are archived on Zenodo
-  ([10.5281/zenodo.23632408](https://doi.org/10.5281/zenodo.23632408) is the record of v0.10).
-- To cite the software, use the **Cite this repository** button (from [`CITATION.cff`](CITATION.cff)) or the Zenodo record.
+- Changes between versions: [`CHANGELOG.md`](CHANGELOG.md). Releases are archived on Zenodo with a DOI
+  (withheld during double-blind review).
+- Citation information is withheld during double-blind review.
 - The archived releases on Zenodo are distributed under the Creative Commons Attribution 4.0 International license
   (CC BY 4.0).
 
