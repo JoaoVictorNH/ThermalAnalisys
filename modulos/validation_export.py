@@ -315,6 +315,7 @@ def _run_metadata(results, config, ext_info, extra=None):
                            'permanent water (JRC GSW occurrence >= 50 %) excluded; '
                            'classes after Deng et al. (2023)',
         'lst_source': 'Landsat C2 L2 ST_B10 (DN*0.00341802+149-273.15), 30 m',
+        'thermal_composition': results.get('thermal', {'mode': 'selected_scenes'}),
         'extents': ext_info,
         'raster_naming': {'roi': '<product>_<site>_...',
                           'perimeter': '<product>_<site>_perimeter_...'},

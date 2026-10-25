@@ -14,23 +14,11 @@ import math
 import ee
 import numpy as np
 
-from modulos.image_processing import (
-    get_selected_landsat_image, process_landsat_image, process_landsat_median,
-    maskL8clouds, apply_landsat_scale_factors, landsat_collection_ids,
-)
+from modulos.image_processing import get_selected_landsat_image, process_landsat_image
 from modulos.lst_analysis import calculate_uhi
 from modulos.spectral_analysis import calculate_spectral_indices_landsat
 from modulos.stats_analysis import analyze_joint_index_regression, analyze_new_buildings_grid
-
-
-
-def _landsat_collection(geometry, start, end, landsat_type, cloud_cover):
-    col = None
-    for cid in landsat_collection_ids(landsat_type):
-        c = (ee.ImageCollection(cid).filterBounds(geometry).filterDate(start, end)
-             .filterMetadata('CLOUD_COVER', 'less_than', cloud_cover))
-        col = c if col is None else col.merge(c)
-    return col.map(maskL8clouds).map(apply_landsat_scale_factors)
+from modulos.thermal_composite import seasonal_landsat
 
 
 def landsat_thermal_period(roi, s2_projection, reference_geometry=None, landsat_id=None,
@@ -49,12 +37,10 @@ def landsat_thermal_period(roi, s2_projection, reference_geometry=None, landsat_
         dates = [f'{d[:4]}-{d[4:6]}-{d[6:8]}']
         label = dates[0]
     else:
-        col = _landsat_collection(geom, start, end, landsat_type, cloud_cover)
-        dates = sorted(set(col.aggregate_array('system:time_start')
-                           .map(lambda t: ee.Date(t).format('YYYY-MM-dd')).getInfo()))
-        if not dates:
-            raise ValueError(f'No Landsat scene between {start} and {end} with < {cloud_cover}% clouds.')
-        ls_opt, lst, _ = process_landsat_median(col, s2_projection)
+        # same seasonal median as the main pipeline (cell 5.1): one mosaic per clear day
+        p = seasonal_landsat(geom, start, end, landsat_type, cloud_cover, s2_projection,
+                             roi=roi, reference_geometry=reference_geometry)
+        ls_opt, lst, dates = p['ls_optical'], p['lst'], p['days']
         label = f'median {start}…{end}'
     return {'lst': lst.rename('LST'), 'ls_optical': ls_opt,
             'indices': calculate_spectral_indices_landsat(ls_opt),

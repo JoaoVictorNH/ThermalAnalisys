@@ -9,6 +9,8 @@ Outputs for later validation of the analysis area and of the urban perimeter.
 - `analyze_new_buildings_grid` also returns the cell centroids (`cell_xy`, export CRS).
 - **Landsat 8 + 9** (cell 3.1, `landsat_type='L8+L9'`): search, selection and median of both sensors merged (more clear scenes for the seasonal median). Landsat 9 IDs (`LC09_…`) are recognised in 3.2 / 3.4.
 - T2 now uses its own maximum cloud cover (cell 3.3); before, cell 4.0 applied the T1 value to both periods.
+- **Thermal composition** (cell 5.1, `modulos/thermal_composite.py`): `Selected scenes` or `Seasonal median (Landsat only)` — per-pixel median of the clear days of a seasonal window (one mosaic per day), while the change detection and the Sentinel-2 indices stay on the selected scenes. Six comparability checks are printed and stored (same season, same length, window contains the Sentinel-2 date of the change mask, ≥ 3 clear days and ratio ≥ 0.5, same cloud limit, valid days per pixel). Cell 5.2 lists the antecedent rain of every clear day; cell 9.3 uses the same seasonal median; the validation package records the composition and the checks.
+- Cells 3.2 / 3.4: the image IDs should stay filled (they feed the validated change detection); empty IDs turn all inputs into medians.
 
 ## v0.02 — 2026-10-24
 
