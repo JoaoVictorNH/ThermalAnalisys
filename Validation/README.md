@@ -45,4 +45,4 @@ Note: the threshold 45 used by default in the pipeline (cell 6.4) was selected o
 
 - Hafner, S.; Ban, Y.; Nascetti, A. (2023). Semi-supervised urban change detection using multi-modal Sentinel-1 SAR and Sentinel-2 MSI data. *Remote Sensing*, 15(21), 5135. https://doi.org/10.3390/rs15215135
 - Corley, I.; Robinson, C.; Ortiz, A. (2024). A change detection reality check. arXiv:2402.06994.
-- Silva, A. G. L.; Torres, M. C. A. (2021). *Building and Environment*, 192, 107634. https://doi.org/10.1016/j.buildenv.2021.107634
+- Silva, A.; Torres, M. (2021). Proposing an effective and inexpensive tool to detect urban surface temperature changes associated with urbanization processes in small cities. *Building and Environment*, 192, 107634. https://doi.org/10.1016/j.buildenv.2021.107634
