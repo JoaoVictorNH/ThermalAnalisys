@@ -61,7 +61,8 @@ programming. For a city and two periods it answers three practical questions:
 
 - A Google account with Google Drive.
 - An **Earth Engine project** (free for non-commercial use): [earthengine.google.com/signup](https://earthengine.google.com/signup/).
-- The pre-trained change detection weights `mmcr_train100.pt` released by Hafner, Ban and Nascetti (2023).
+- The pre-trained change detection weights `mmcr_train100.pt` of Hafner, Ban and Nascetti (2023):
+  [download `mmcr_train100.pt`](https://drive.google.com/file/d/1F2YGSiXeQ801VOT94FCZqxU618j6D3tO/view?usp=drive_link) and place it in `Modelo_Rede_Neural_Change_Detection/` (cell 6.1).
 - A KML/KMZ of the analysis area (or draw it in the notebook) and, recommended, a KML of the urban perimeter.
 
 No GPU is needed: the inference of a zone of ~1.6 km² runs on the CPU of a free Colab session.
