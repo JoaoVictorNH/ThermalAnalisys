@@ -539,6 +539,9 @@ def get_selected_landsat_image(landsat_id, roi, landsat_type='L8'):
     Returns:
         ee.Image: Landsat day mosaic, processed and clipped to ROI.
     """
+    # Accept IDs copied with the merge prefix of an L8+L9 listing ('1_LC08_…', '2_LC09_…')
+    landsat_id = re.sub(r'^\d+_', '', str(landsat_id).strip())
+
     # Sensor from the ID prefix (LC08 / LC09); the landsat_type is only a fallback
     if landsat_id.startswith('LC08'):
         collection_id = LANDSAT_COLLECTIONS['L8']
@@ -833,7 +836,9 @@ def search_available_images(config, max_display=20):
         time_utc = ee.Date(img.get('system:time_start'))
         time_brasilia = time_utc.advance(-3, 'hour')
         return ee.Dictionary({
-            'id': img.id(),
+            # merged L8+L9 collections prefix the index with '1_' / '2_': strip it so the
+            # listed ID can be pasted in cells 3.2 / 3.4 (e.g. LC09_218063_20251106)
+            'id': ee.String(img.id()).replace('^[0-9]+_', ''),
             'date_utc': time_utc.format('YYYY-MM-dd'),
             'time_utc': time_utc.format('HH:mm:ss'),
             'date_brasilia': time_brasilia.format('YYYY-MM-dd'),
