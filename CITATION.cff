@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "ThermalAnalisys: open-source framework coupling deep learning detection of new buildings with intra-urban surface heat island analysis"
+type: software
+license: CC-BY-4.0
+repository-code: "https://github.com/JoaoVictorNH/ThermalAnalisys"
+authors:
+  - family-names: Holanda
+    given-names: João Victor
+    affiliation: Universidade Federal do Ceará
+  - family-names: Lima
+    given-names: Mariana Xavier de
+    affiliation: Universidade Federal do Ceará
+  - family-names: Mesquita
+    given-names: Esequiel
+    affiliation: Universidade Federal do Ceará
