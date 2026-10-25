@@ -1,16 +1,46 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "ThermalAnalisys: open-source framework coupling deep learning detection of new buildings with intra-urban surface heat island analysis"
+title: "ThermalAnalisys: open-source tool coupling deep learning detection of new buildings with intra-urban surface heat island analysis"
 type: software
 license: MIT
+doi: 10.5281/zenodo.23632373
 repository-code: "https://github.com/JoaoVictorNH/ThermalAnalisys"
+abstract: >-
+  Open-source tool, run through forms in Google Colab with Google Earth Engine,
+  that couples a pre-trained multimodal Siamese U-Net detecting new buildings
+  (10 m) from Sentinel-1 and Sentinel-2 imagery with an intra-urban surface
+  urban heat island analysis from Landsat 8/9 surface temperature. It delivers
+  a mask of new buildings with an accuracy benchmark against spectral index
+  differencing, SUHI maps and classes relative to the urban perimeter, a 90 m
+  indicator grid separating built, cleared and stable land, a test of the
+  sensitivity of the thermal results to the acquisition dates, and GIS-ready
+  rasters and tables.
+keywords:
+  - surface urban heat island
+  - urban change detection
+  - deep learning
+  - land surface temperature
+  - Google Earth Engine
+  - semi-arid cities
+  - urban planning
 authors:
   - family-names: Holanda
-    given-names: João Victor
-    affiliation: Universidade Federal do Ceará
+    given-names: João Victor do Nascimento
+    affiliation: "Universidade Federal do Ceará (UFC), Programa de Pós-Graduação em Arquitetura, Urbanismo e Design (PPGAU+D)"
   - family-names: Lima
-    given-names: Mariana Xavier de
-    affiliation: Universidade Federal do Ceará
+    given-names: Mariana Monteiro Xavier de
+    affiliation: "Universidade Federal do Ceará (UFC), Programa de Pós-Graduação em Arquitetura, Urbanismo e Design (PPGAU+D)"
   - family-names: Mesquita
-    given-names: Esequiel
-    affiliation: Universidade Federal do Ceará
+    given-names: Esequiel Fernandes Teixeira
+    affiliation: "Universidade Federal do Ceará (UFC)"
+references:
+  - type: thesis
+    title: "Análise térmica superficial combinada com monitoramento da expansão urbana baseada em deep learning"
+    authors:
+      - family-names: Holanda
+        given-names: João Victor do Nascimento
+    year: 2026
+    thesis-type: "Master's dissertation"
+    institution:
+      name: Universidade Federal do Ceará
+    url: "http://repositorio.ufc.br/handle/riufc/87670"

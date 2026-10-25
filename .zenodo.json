@@ -1,11 +1,44 @@
 {
-  "title": "ThermalAnalisys: open-source framework coupling deep learning detection of new buildings with intra-urban surface heat island analysis",
+  "title": "ThermalAnalisys: open-source tool coupling deep learning detection of new buildings with intra-urban surface heat island analysis",
   "upload_type": "software",
+  "access_right": "open",
   "license": "MIT",
+  "language": "eng",
   "creators": [
-    {"name": "Holanda, João Victor", "affiliation": "Universidade Federal do Ceará"},
-    {"name": "Lima, Mariana Xavier de", "affiliation": "Universidade Federal do Ceará"},
-    {"name": "Mesquita, Esequiel", "affiliation": "Universidade Federal do Ceará"}
+    {
+      "name": "Holanda, João Victor do Nascimento",
+      "affiliation": "Universidade Federal do Ceará (UFC), Programa de Pós-Graduação em Arquitetura, Urbanismo e Design (PPGAU+D), Fortaleza, Brazil"
+    },
+    {
+      "name": "Lima, Mariana Monteiro Xavier de",
+      "affiliation": "Universidade Federal do Ceará (UFC), Programa de Pós-Graduação em Arquitetura, Urbanismo e Design (PPGAU+D), Fortaleza, Brazil"
+    },
+    {
+      "name": "Mesquita, Esequiel Fernandes Teixeira",
+      "affiliation": "Universidade Federal do Ceará (UFC), Fortaleza, Brazil"
+    }
   ],
-  "keywords": ["surface urban heat island", "urban change detection", "land surface temperature", "deep learning", "Google Earth Engine"]
+  "description": "<p><strong>ThermalAnalisys</strong> is an open-source tool that shows a city where it is expanding and how its surface heat responds. It runs through forms in Google Colab with Google Earth Engine, on free data and computing, and needs no coding.</p><p>It couples two engines:</p><ul><li><strong>Detection of new buildings (10 m)</strong> from Sentinel-1 SAR (VV, VH) and Sentinel-2 (RGB, NIR) with the pre-trained multimodal Siamese U-Net of Hafner, Ban and Nascetti (2023), applied without fine-tuning on a CPU.</li><li><strong>Intra-urban surface urban heat island (SUHI)</strong> from Landsat 8/9 surface temperature, expressed as a z-score relative to the whole urban perimeter (permanent water excluded) and classified into five intensity zones with their limits in °C for each date (Deng et al., 2023). The thermal data come from one scene or from a seasonal median of all clear days, accepted only when six comparability checks pass.</li></ul><p><strong>Outputs</strong></p><ul><li>Mask of new buildings, with an accuracy assessment against a reference map and a benchmark against spectral index differencing (ΔNDBI, ΔNBAI, ΔDBSI, ΔBSI, ΔNDVI; Otsu and same-area thresholds).</li><li>LST, SUHI and SUHI classes for both dates, with antecedent rainfall (CHIRPS).</li><li>A 90 m indicator grid that separates built, changed (cleared without buildings) and stable cells: contrasts, dose–response, joint contribution of index changes, and 95% confidence intervals by spatial block bootstrap.</li><li>Sensitivity of the thermal results to the acquisition dates (selected pair, anniversary pair, seasonal median).</li><li>Cloud-optimized GeoTIFFs and tables for the analysis area and the urban perimeter, ready for GIS and for joining with Local Climate Zone maps or Urban Climatic Maps.</li></ul><p><strong>Contents</strong>: main notebook, Python modules (<code>modulos/</code>), validation notebook with the data and reference map of the accuracy assessment (Sobral, Ceará, Brazil, 2016–2023), README with a quick start, and changelog. The pre-trained weights are linked in the README.</p><p><strong>Application</strong>: Sobral, a semi-arid medium-sized city in north-eastern Brazil, 2019–2025.</p><p><strong>Origin</strong>: the tool extends the model proposed in the master's dissertation of J. V. N. Holanda (Universidade Federal do Ceará, 2026; <a href=\"http://repositorio.ufc.br/handle/riufc/87670\">http://repositorio.ufc.br/handle/riufc/87670</a>), supervised by M. M. X. de Lima and co-supervised by E. F. T. Mesquita.</p><p><strong>How to cite</strong>: use the DOI of the version you ran, or the concept DOI <a href=\"https://doi.org/10.5281/zenodo.23632373\">10.5281/zenodo.23632373</a> for all versions.</p>",
+  "notes": "Generative AI (Claude, Anthropic) assisted in code development and documentation; the authors reviewed all content and take full responsibility for it. Acknowledgements: Laboratório de Experiência Digital (LED), Secretaria de Ciência, Tecnologia e Educação Superior do Ceará (Secitece), FUNCAP, CAPES and CNPq (Project 302054/2022-7).",
+  "keywords": [
+    "surface urban heat island",
+    "urban change detection",
+    "deep learning",
+    "land surface temperature",
+    "Google Earth Engine",
+    "Sentinel-1",
+    "Sentinel-2",
+    "Landsat",
+    "semi-arid cities",
+    "urban planning",
+    "local climate zones"
+  ],
+  "related_identifiers": [
+    {"identifier": "https://github.com/JoaoVictorNH/ThermalAnalisys", "relation": "isSupplementTo", "resource_type": "software", "scheme": "url"},
+    {"identifier": "http://repositorio.ufc.br/handle/riufc/87670", "relation": "isDerivedFrom", "resource_type": "publication-thesis", "scheme": "url"},
+    {"identifier": "10.3390/rs15215135", "relation": "references", "resource_type": "publication-article", "scheme": "doi"},
+    {"identifier": "10.1016/j.buildenv.2021.107634", "relation": "references", "resource_type": "publication-article", "scheme": "doi"},
+    {"identifier": "10.1016/j.ecolind.2022.109817", "relation": "references", "resource_type": "publication-article", "scheme": "doi"},
+    {"identifier": "10.1007/s00484-014-0902-9", "relation": "references", "resource_type": "publication-article", "scheme": "doi"}
+  ]
 }

@@ -1,6 +1,6 @@
 # ThermalAnalisys — v0.11
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23632408.svg)](https://doi.org/10.5281/zenodo.23632408)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23632373.svg)](https://doi.org/10.5281/zenodo.23632373)
 
 **An open-source framework that couples deep learning detection of new buildings with intra-urban surface urban heat
 island (SUHI) analysis, for cities with limited monitoring infrastructure.**
@@ -220,12 +220,14 @@ Validation area in Sobral, 2016–2023; 77,562 pixels of 10 m inside the referen
 
 ## Versions, citation and license
 
-- Changes between versions: [`CHANGELOG.md`](CHANGELOG.md). Releases are archived on Zenodo
-  ([10.5281/zenodo.23632408](https://doi.org/10.5281/zenodo.23632408) is the record of v0.10).
+- Changes between versions: [`CHANGELOG.md`](CHANGELOG.md). Releases are archived on Zenodo: the concept DOI
+  [10.5281/zenodo.23632373](https://doi.org/10.5281/zenodo.23632373) cites all versions and always resolves to the latest;
+  each version has its own DOI (v0.10: [10.5281/zenodo.23632408](https://doi.org/10.5281/zenodo.23632408);
+  v0.11: [10.5281/zenodo.23632662](https://doi.org/10.5281/zenodo.23632662)).
 - To cite the software, use the **Cite this repository** button (from [`CITATION.cff`](CITATION.cff)) or the Zenodo record.
 - **License:** the code is released under the [MIT License](LICENSE). The pre-trained change detection weights are
   the work of Hafner, Ban and Nascetti (2023) and are not covered by this license; Landsat, Sentinel, CHIRPS and JRC data
-  follow the terms of their providers. Releases up to v0.11 were archived on Zenodo under CC BY 4.0.
+  follow the terms of their providers.
 
 ---
 
