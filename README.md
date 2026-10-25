@@ -198,6 +198,7 @@ Validation area in Sobral, 2016–2023; 77,562 pixels of 10 m inside the referen
 ├── Validation/                  data, reference map, notebook and expected results of the change detection
 ├── docs/workflow.png            workflow figure
 ├── CHANGELOG.md                 versions
+├── LICENSE                      MIT License
 └── A_Zone.kmz                   analysis area of the demonstration
 ```
 
@@ -220,8 +221,9 @@ Validation area in Sobral, 2016–2023; 77,562 pixels of 10 m inside the referen
 - Changes between versions: [`CHANGELOG.md`](CHANGELOG.md). Releases are archived on Zenodo with a DOI
   (withheld during double-blind review).
 - Citation information is withheld during double-blind review.
-- The archived releases on Zenodo are distributed under the Creative Commons Attribution 4.0 International license
-  (CC BY 4.0).
+- **License:** the code is released under the [MIT License](LICENSE). The pre-trained change detection weights are
+  the work of Hafner, Ban and Nascetti (2023) and are not covered by this license; Landsat, Sentinel, CHIRPS and JRC data
+  follow the terms of their providers.
 
 ---
 

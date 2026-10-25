@@ -2,6 +2,8 @@
 
 ## Unreleased (after v0.11)
 
+- **MIT License** (`LICENSE`);
+- Download link of the pre-trained weights in the README and in cell 6.1.
 - README rewritten: what the framework does, quick start in Colab, notebook sections, recommended settings (with the conditions for a seasonal median), outputs, validation results, repository structure, limitations, citation; workflow figure in `docs/`.
 - Cell 1.3 / `authenticate_gee`: no default Earth Engine project; each user enters their own (clear error message when empty).
 - Notebook: personal Colab execution metadata and widget state removed.
