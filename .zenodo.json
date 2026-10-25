@@ -1,7 +1,7 @@
 {
   "title": "ThermalAnalisys: open-source framework coupling deep learning detection of new buildings with intra-urban surface heat island analysis",
   "upload_type": "software",
-  "license": "CC-BY-4.0",
+  "license": "MIT",
   "creators": [
     {"name": "Holanda, João Victor", "affiliation": "Universidade Federal do Ceará"},
     {"name": "Lima, Mariana Xavier de", "affiliation": "Universidade Federal do Ceará"},
